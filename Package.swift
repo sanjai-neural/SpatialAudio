@@ -13,8 +13,12 @@ let package = Package(
     // No third-party dependencies. Add one only with a stated reason.
     dependencies: [],
     targets: [
+        // Wait-free single-producer/single-consumer pose mailbox (C11 stdatomic). Needed because
+        // Swift's Synchronization.Atomic requires macOS 15 and our minimum is 14.0.
+        .target(name: "CPoseMailbox"),
+
         // Pure logic: no hardware, no AVFoundation/Vision/CoreAudio. Unit-tested.
-        .target(name: "SpatialAudioCore"),
+        .target(name: "SpatialAudioCore", dependencies: ["CPoseMailbox"]),
 
         // AVFoundation + Vision behind the HeadPoseProvider protocol.
         .target(name: "SpatialAudioTracking", dependencies: ["SpatialAudioCore"]),
@@ -30,5 +34,6 @@ let package = Package(
 
         .testTarget(name: "SpatialAudioCoreTests", dependencies: ["SpatialAudioCore"]),
         .testTarget(name: "SpatialAudioTrackingTests", dependencies: ["SpatialAudioTracking", "SpatialAudioCore"]),
-    ]
+    ],
+    cLanguageStandard: .c11
 )

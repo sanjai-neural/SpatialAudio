@@ -21,11 +21,14 @@ camera → Vision → raw pose → One-Euro filter → state machine (Locked/Hol
 AVCaptureSession (640x480, serial video queue, late frames dropped)
   -> VisionFaceDetector  (VNDetectFaceRectanglesRequest rev 3: yaw/pitch/roll in radians, Vision conventions)
   -> HeadPoseDetection   (timestamps on session sync clock, mirrored flag, rotation angle, error)
-  -> HeadTracker         (HeadAngleMapping -> HeadPosePipeline -> TrackingSnapshot)   [no AVFoundation/Vision here]
+  -> HeadTracker         (HeadAngleMapping -> TrackingQualityEstimator -> HeadPosePipeline -> TrackingSnapshot)   [no AVFoundation/Vision here]
+       + watchdog timer (monotonic clock): no frame for 250 ms => "lost" tick => hold -> decay -> static
+       (planned, Step 3) -> PoseMailbox.publish() -> audio thread PoseMailbox.read() + per-block slerp
   -> HeadTrackingModel   (@MainActor view model) -> HUDView
 ```
 - `HeadPoseProvider` is the seam: the camera implementation is `CameraHeadPoseProvider`; tests use a fake.
 - API facts verified against the macOS 27.2 SDK headers on 2026-11-04: Vision `yaw/pitch/roll` exist on `VNFaceObservation` (revision 3 required for pitch and continuous values); header signs: yaw "counterclockwise", pitch "positive = nodding down", roll "counterclockwise"; `AVCaptureConnection.isVideoMirrored` exists on macOS but `automaticallyAdjustsVideoMirroring` does not; `AVCaptureSession.synchronizationClock` (macOS 12.3+) is the timebase of output timestamps.
+- Quality gate: `TrackingQualityEstimator` (Core) scores each frame 0...1 as the weakest of: face size, edge cropping, bounding-box jump, scale jump, pose-angle speed, frame rate, Vision confidence. That score, not Vision's confidence, is the sample confidence the state machine compares against its threshold. Rejected samples never reach the One-Euro filter.
 - Mirroring: never set; read per frame; yaw and roll signs are flipped by the mapping when a frame is mirrored.
 - Latency fields per frame: delivery (received − capture timestamp), vision (detected − received), total (pose ready − capture timestamp).
 
@@ -46,7 +49,7 @@ AVCaptureSession (640x480, serial video queue, late frames dropped)
 - Does Vision expose head yaw/pitch/roll directly (Step 2 starts by checking SDK headers)?
 - Latency budget and whether prediction is needed (decide after Step 5 measurements).
 
-## Pose handoff to the audio thread — options (checked 2026-11-04, decision pending)
+## Pose handoff to the audio thread — options (checked 2026-11-04) — DECIDED and implemented: C triple buffer (`CPoseMailbox`)
 Requirement: single writer (tracking), single reader (audio callback); no locks, allocation, I/O or logging in the reader. A pose is 4 doubles (32 B) or 4 floats (16 B), too large to rely on a single atomic word, so every lock-free option needs a seqlock or triple buffer built on atomic integer operations.
 
 | Option | Available at macOS 14.0? | Trade-offs |
@@ -57,4 +60,4 @@ Requirement: single writer (tracking), single reader (audio callback); no locks,
 | Locks (`os_unfair_lock`, even try-lock) | Yes | Violates the no-locks-in-audio-callback rule; priority-inversion risk. Rejected |
 | `OSAtomic*` | Present but deprecated in the SDK headers | Rejected |
 
-Recommendation (not yet decided): C target with a `stdatomic.h` triple buffer, built and stress-tested in Step 3, because it works at 14.0 with no dependency and is wait-free for both sides. The reader would then interpolate (slerp) between the previous and latest pose per audio block. Needs Sanjai's approval before Step 3.
+Decision (approved by Sanjai): C target with a `stdatomic.h` triple buffer, because it works at 14.0 with no dependency and is wait-free for both sides. Implemented as `Sources/CPoseMailbox` + `PoseMailbox` (Core); stress- and TSan-tested (see STATUS). The audio reader will interpolate (slerp) between the previous and latest pose per block. Still open for Step 3: whether Swift class access (ARC) is acceptable in the audio callback or the render side should hold the raw C pointer.

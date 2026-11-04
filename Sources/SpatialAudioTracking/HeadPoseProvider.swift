@@ -1,19 +1,5 @@
 import SpatialAudioCore
 
-/// One detected face's pose measurement (Vision conventions; see `VisionFaceAngles`).
-public struct FaceMeasurement: Equatable, Sendable {
-    public var angles: VisionFaceAngles
-    /// `VNObservation.confidence`. Apple documents that this "can always be returned as 1.0 if
-    /// confidence is not supported", so treat it as a weak signal, not a pose-quality measure.
-    public var confidence: Double
-    /// Normalized bounding-box area (0...1); used to pick the largest face.
-    public var boundingBoxArea: Double
-
-    public init(angles: VisionFaceAngles, confidence: Double, boundingBoxArea: Double) {
-        self.angles = angles; self.confidence = confidence; self.boundingBoxArea = boundingBoxArea
-    }
-}
-
 /// Result of processing one camera frame. All times are seconds on the provider's clock
 /// (`HeadPoseProvider.currentTime()`), which for the camera is the capture session's
 /// synchronization clock, the same timebase as the sample timestamps.

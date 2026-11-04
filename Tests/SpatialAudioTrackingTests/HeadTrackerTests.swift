@@ -21,13 +21,16 @@ final class FakeProvider: HeadPoseProvider, @unchecked Sendable {
 
 let deg2rad = Double.pi / 180
 
+let goodBox = NormalizedRect(x: 0.3, y: 0.25, width: 0.3, height: 0.45)
+
 func detection(at t: Double, yaw: Double = 0, pitch: Double = 0, roll: Double = 0,
                face: Bool = true, mirrored: Bool = false, confidence: Double = 1,
+               box: NormalizedRect = goodBox,
                received: Double? = nil, detected: Double? = nil) -> HeadPoseDetection {
     HeadPoseDetection(
         captureTime: t, receivedAt: received ?? t, detectedAt: detected ?? t,
         face: face ? FaceMeasurement(angles: VisionFaceAngles(yaw: yaw * deg2rad, pitch: pitch * deg2rad, roll: roll * deg2rad),
-                                     confidence: confidence, boundingBoxArea: 0.2) : nil,
+                                     confidence: confidence, boundingBox: box) : nil,
         facesDetected: face ? 1 : 0, frameMirrored: mirrored)
 }
 
@@ -158,9 +161,194 @@ func detection(at t: Double, yaw: Double = 0, pitch: Double = 0, roll: Double = 
     }
 }
 
+// MARK: - Quality gating and watchdog
+
+/// Thread-safe settable clock for driving the watchdog deterministically.
+final class FakeClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var t = 1000.0
+    func read() -> Double { lock.lock(); defer { lock.unlock() }; return t }
+    func advance(_ dt: Double) { lock.lock(); t += dt; lock.unlock() }
+}
+
+@Suite struct QualityGateTests {
+    let dt = 1.0 / 30
+
+    @Test func lowQualityFaceCountsAsLossAndFreezesPose() {
+        let t = HeadTracker(provider: FakeProvider())
+        var tt = 0.0
+        var locked: TrackingSnapshot!
+        while tt < 2 { locked = t.ingest(detection(at: tt, yaw: 20)); tt += dt }
+        #expect(locked.state == .locked && locked.quality.overall == 1)
+        // The face shrinks to a tiny box (far away / badly detected): quality 0 even though Vision still reports angles.
+        let tiny = NormalizedRect(x: 0.4, y: 0.4, width: 0.03, height: 0.04)
+        let s = t.ingest(detection(at: tt, yaw: 70, box: tiny))
+        #expect(s.quality.overall == 0 && s.quality.limiting == "size")
+        #expect(s.state == .holding)
+        #expect(abs(s.euler.yawDegrees - 20) < 1)            // the bad angles (70°) never reached the pose
+    }
+
+    @Test func singleGlitchFrameIsRejectedAndTrackingRecoversWithoutJump() {
+        let t = HeadTracker(provider: FakeProvider())
+        var tt = 0.0
+        while tt < 2 { _ = t.ingest(detection(at: tt, yaw: 20)); tt += dt }
+        var maxStep = 0.0
+        var prev = t.ingest(detection(at: tt, yaw: 20)).pose; tt += dt
+        let glitch = t.ingest(detection(at: tt, yaw: 20, box: NormalizedRect(x: 0.62, y: 0.25, width: 0.3, height: 0.45)))  // box jumps ~0.71 face sizes, stays inside the frame
+        #expect(glitch.quality.limiting == "center jump" && glitch.state == .holding)
+        maxStep = max(maxStep, prev.angle(to: glitch.pose) * 180 / .pi); prev = glitch.pose; tt += dt
+        for _ in 0..<45 {
+            let s = t.ingest(detection(at: tt, yaw: 20)); tt += dt
+            maxStep = max(maxStep, prev.angle(to: s.pose) * 180 / .pi); prev = s.pose
+        }
+        #expect(maxStep < 1)                                   // same real pose throughout: no visible jump
+        #expect(t.ingest(detection(at: tt, yaw: 20)).state == .locked)
+    }
+
+    @Test func snapshotExposesQualityBreakdownAndVisionConfidenceSeparately() {
+        let t = HeadTracker(provider: FakeProvider())
+        let s = t.ingest(detection(at: 0, confidence: 0.88))
+        #expect(s.confidence == 0.88)
+        #expect(s.quality.visionConfidence == 1 && s.quality.facePresent)
+    }
+}
+
+@Suite struct WatchdogTests {
+    let dt = 1.0 / 30
+
+    func makeTracker(timeout: Double = 0.25) -> (HeadTracker, FakeClock) {
+        var cfg = HeadTrackerConfig()
+        cfg.frameTimeout = timeout
+        let clock = FakeClock()
+        return (HeadTracker(provider: FakeProvider(), config: cfg, clock: { clock.read() }), clock)
+    }
+
+    /// Delivers frames at 30 fps (advancing the fake monotonic clock) for `seconds`.
+    func frames(_ t: HeadTracker, _ clock: FakeClock, from t0: Double, seconds: Double, yaw: Double = 40) -> (TrackingSnapshot, Double) {
+        var tt = t0
+        var last: TrackingSnapshot!
+        while tt <= t0 + seconds + 1e-9 {
+            last = t.ingest(detection(at: tt, yaw: yaw)); clock.advance(dt); tt += dt
+        }
+        return (last, tt)
+    }
+
+    @Test func noTickBeforeFirstFrame() {
+        let (t, clock) = makeTracker()
+        let box = Box(); t.setSnapshotHandler { box.append($0) }
+        clock.advance(10); t.watchdogTick()
+        #expect(box.count == 0)
+    }
+
+    @Test func noTickWhileFramesAreFreshEnough() {
+        let (t, clock) = makeTracker()
+        let box = Box(); t.setSnapshotHandler { box.append($0) }
+        _ = frames(t, clock, from: 0, seconds: 1)
+        let before = box.count
+        clock.advance(0.20); t.watchdogTick()                  // 200 ms < 250 ms timeout
+        #expect(box.count == before)
+    }
+
+    @Test func frameSilenceHoldsThenDecaysThenGoesStatic() {
+        let (t, clock) = makeTracker()
+        let box = Box(); t.setSnapshotHandler { box.append($0) }
+        _ = frames(t, clock, from: 0, seconds: 2)
+        let log = Box()
+        t.setSnapshotHandler { log.append($0) }                // watchdog ticks only from now on
+        // Camera goes silent. Tick the watchdog every 50 ms of monotonic time for 5 s.
+        for _ in 0..<100 { clock.advance(0.05); t.watchdogTick() }
+        let states = log.all.map(\.state)
+        let poses = log.all.map(\.pose)
+        #expect(states.contains(.holding) && states.contains(.decaying))
+        #expect(states.last == .static)
+        #expect(poses.last!.angle(to: .identity) < 1e-9)
+        // Pose is continuous and decays monotonically toward neutral.
+        var maxStepDeg = 0.0
+        for (a, b) in zip(poses, poses.dropFirst()) { maxStepDeg = max(maxStepDeg, a.angle(to: b) * 180 / .pi) }
+        #expect(maxStepDeg < 40.0 / 30 * 1.6)                  // 1.5 s decay at 20 Hz = 30 steps
+        let angles = poses.map { $0.angle(to: .identity) }
+        for (a, b) in zip(angles, angles.dropFirst()) { #expect(b <= a + 1e-9) }
+    }
+
+    @Test func timeoutIsMeasuredOnTheMonotonicClockNotCameraTimestamps() {
+        let (t, clock) = makeTracker()
+        let box = Box(); t.setSnapshotHandler { box.append($0) }
+        // Camera timestamps jump around wildly; only the monotonic clock decides staleness.
+        _ = t.ingest(detection(at: 5000, yaw: 10))
+        let n = box.count
+        clock.advance(0.1); t.watchdogTick()
+        #expect(box.count == n)
+        clock.advance(0.2); t.watchdogTick()                  // 0.3 s since the last frame
+        #expect(box.count == n + 1)
+    }
+
+    @Test func watchdogSnapshotsAreFlaggedAndCarryNoFace() throws {
+        let (t, clock) = makeTracker()
+        let log = Box()
+        t.setSnapshotHandler { log.append($0) }
+        _ = frames(t, clock, from: 0, seconds: 1)
+        clock.advance(0.4); t.watchdogTick()
+        let s = try #require(log.last)
+        #expect(s.isWatchdogTick && s.visionAngles == nil && s.facesDetected == 0)
+        #expect(abs(s.frameAge - 0.4 - 0) < 0.05 && s.state == .holding)
+        #expect(s.quality.limiting == "no frames" && s.quality.overall == 0)
+    }
+
+    @Test func framesResumingAfterTimeoutBlendBackWithoutJump() {
+        let (t, clock) = makeTracker()
+        let log = Box()
+        var (_, tt) = frames(t, clock, from: 0, seconds: 2, yaw: 40)
+        t.setSnapshotHandler { log.append($0) }
+        for _ in 0..<12 { clock.advance(0.05); t.watchdogTick() }          // 0.6 s silence -> into decay
+        let beforeResume = log.all.last!.pose
+        #expect(beforeResume.angle(to: .identity) > 0.1)                   // not yet at neutral
+        var maxStep = 0.0
+        var prev = beforeResume
+        for _ in 0..<60 {                                                  // 2 s of frames again, new camera timeline
+            let s = t.ingest(detection(at: tt + 100, yaw: 40)); clock.advance(dt); tt += dt
+            maxStep = max(maxStep, prev.angle(to: s.pose) * 180 / .pi); prev = s.pose
+        }
+        #expect(maxStep < 40.0 / 7 * 1.6)                                  // 0.25 s blend at 30 fps ≈ 7.5 frames
+        #expect(abs(prev.euler.yawDegrees - 40) < 1)
+    }
+
+    @Test func realTimerFiresAfterStartAndStopsAfterStop() async throws {
+        var cfg = HeadTrackerConfig()
+        cfg.frameTimeout = 0.05
+        cfg.watchdogInterval = 0.01
+        let fake = FakeProvider()
+        let t = HeadTracker(provider: fake, config: cfg)               // real monotonic clock
+        let box = WatchdogBox(); t.setSnapshotHandler { s in if s.isWatchdogTick { box.hit() } }
+        try await t.start()
+        fake.handler?(detection(at: 0, yaw: 10))                       // one frame, then silence
+        for _ in 0..<200 where box.count == 0 { try await Task.sleep(nanoseconds: 10_000_000) }   // up to 2 s
+        #expect(box.count > 0)
+        t.stop()
+        try await Task.sleep(nanoseconds: 100_000_000)                 // let any in-flight tick drain
+        let after = box.count
+        try await Task.sleep(nanoseconds: 200_000_000)
+        #expect(box.count == after)                                    // no ticks after stop
+    }
+
+    @Test func monotonicClockAdvancesAndNeverGoesBackwards() {
+        let a = HeadTracker.monotonicSeconds()
+        let b = HeadTracker.monotonicSeconds()
+        #expect(b >= a && a > 0)
+    }
+}
+
+final class WatchdogBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    func hit() { lock.lock(); n += 1; lock.unlock() }
+    var count: Int { lock.lock(); defer { lock.unlock() }; return n }
+}
+
 final class Box: @unchecked Sendable {
     private let lock = NSLock()
     private var items: [TrackingSnapshot] = []
     func append(_ s: TrackingSnapshot) { lock.lock(); items.append(s); lock.unlock() }
     var count: Int { lock.lock(); defer { lock.unlock() }; return items.count }
+    var all: [TrackingSnapshot] { lock.lock(); defer { lock.unlock() }; return items }
+    var last: TrackingSnapshot? { all.last }
 }

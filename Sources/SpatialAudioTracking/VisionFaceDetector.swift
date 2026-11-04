@@ -41,8 +41,10 @@ public final class VisionFaceDetector {
         }
         let angles = VisionFaceAngles(yaw: yaw, pitch: pitch, roll: roll)
         guard angles.isFinite else { return nil }
-        let box = o.boundingBox
-        return FaceMeasurement(angles: angles, confidence: Double(o.confidence),
-                               boundingBoxArea: Double(box.width * box.height))
+        let b = o.boundingBox
+        return FaceMeasurement(
+            angles: angles, confidence: Double(o.confidence),
+            boundingBox: NormalizedRect(x: Double(b.origin.x), y: Double(b.origin.y),
+                                        width: Double(b.width), height: Double(b.height)))
     }
 }

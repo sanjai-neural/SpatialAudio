@@ -45,3 +45,11 @@ If any axis is backwards, tick that axis' **Invert** checkbox, repeat, and tell 
 
 ## Report back
 The sign results (and which Invert boxes you needed), the section A "mirrored/rotation" line, fps, latency numbers, wander in degrees, loss-of-tracking angle, and anything unexpected.
+
+## F. New since the first run (quality signal + watchdog). Optional but useful
+- [ ] The HUD shows "Quality (our gate)" near 1.00 with "limited by: none" in normal use; note what it reads at your normal distance.
+- [ ] Move your face to the very edge of the frame: quality drops, limiting factor `edge`; the pose holds instead of following.
+- [ ] Lean far back so the face is small: limiting factor `size`.
+- [ ] Shake your head very fast: does quality dip (`angular speed`/`center jump`)? Note whether tracking drops out too easily (thresholds are guesses).
+- [ ] Cover the camera: state goes holding → decaying → static (Quality 0, "no face").
+- [ ] (Hard to trigger) If frames stop arriving entirely, the HUD should show "Frames NONE for … ms (watchdog)" in red and the pose should decay to neutral.

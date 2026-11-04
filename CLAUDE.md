@@ -19,6 +19,7 @@ Project: macOS-first desktop app giving ordinary headphones head-tracked spatial
 - Audio callback: no locks, allocation, file/network I/O, or logging. Pose handoff via lock-free latest-value slot, interpolated per audio block.
 - Privacy: camera frames processed in memory only, never saved, no network code, camera released on stop and exit.
 - Add a dependency only with a stated reason. Unit-test all logic in SpatialAudioCore.
+- Pose handoff to the audio thread: `PoseMailbox` (C11 triple buffer in `Sources/CPoseMailbox`). Keep copies field-by-field (TSan does not race-check the bulk memcpy). After touching it run `scripts/tsan-mailbox.sh` and `swift test --sanitize=thread`; a TSan result only counts if it fails on a deliberately broken variant.
 - Build: `swift build`. Test: `swift test` (Swift Testing, `import Testing`; Xcode must be the active developer dir — see docs/STATUS.md). Xcode only for app bundling, signing, notarization.
 
 ## Working protocol (every step)

@@ -30,6 +30,7 @@ import SpatialAudioCore
         #expect(abs(m.angles.pitch - 0.1) < 1e-6)
         #expect(abs(m.angles.roll - 0.2) < 1e-6)
         #expect(abs(m.boundingBoxArea - 0.2) < 1e-6)
+        #expect(abs(m.boundingBox.x - 0.2) < 1e-6 && abs(m.boundingBox.height - 0.5) < 1e-6)
         #expect(m.confidence == 1.0)    // header: observations created this way have confidence 1.0
     }
 

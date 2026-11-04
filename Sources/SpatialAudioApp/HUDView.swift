@@ -36,9 +36,17 @@ struct HUDView: View {
             row("Vision raw (radians→deg)", s?.visionAngles.map { a in
                 fmt3(EulerAngles(yaw: a.yaw, pitch: a.pitch, roll: a.roll)) } ?? "no face")
             row("Mapped, pre-filter", s?.mappedRawEuler.map(fmt3) ?? "—")
-            row("Confidence", s?.confidence.map { String(format: "%.2f (weak signal)", $0) } ?? "—")
+            row("Quality (our gate)", s.map { qualityText($0.quality) } ?? "—")
+            row("  size/edge/ctr/scl/ang/fps/conf", s.map { componentsText($0.quality) } ?? "—")
+            row("Vision confidence (weak)", s?.confidence.map { String(format: "%.2f", $0) } ?? "—")
             row("Faces", s.map { "\($0.facesDetected)" } ?? "—")
-            row("Capture→pose latency", s.map { ms($0.captureToPoseLatency) } ?? "—")
+            if let s, s.isWatchdogTick {
+                GridRow {
+                    Text("Frames").foregroundStyle(.secondary)
+                    Text(String(format: "NONE for %.0f ms (watchdog)", s.frameAge * 1000)).bold().foregroundStyle(.red)
+                }
+            }
+            row("Capture→pose latency", s.map { $0.isWatchdogTick ? "—" : ms($0.captureToPoseLatency) } ?? "—")
             row("  delivery / vision", s.map { "\(ms($0.deliveryLatency)) / \(ms($0.visionDuration))" } ?? "—")
             row("Frame rate", s.map { String(format: "%.1f fps", $0.framesPerSecond) } ?? "—")
             row("Frame mirrored / rotation", s.map { "\($0.frameMirrored) / \($0.videoRotationAngle.map { String(format: "%.0f°", $0) } ?? "?")" } ?? "—")
@@ -93,6 +101,16 @@ struct HUDView: View {
     }
 
     private func ms(_ seconds: Double) -> String { String(format: "%.0f ms", seconds * 1000) }
+
+    private func qualityText(_ q: QualityBreakdown) -> String {
+        String(format: "%.2f  (limited by: %@)", q.overall, q.limiting)
+    }
+
+    private func componentsText(_ q: QualityBreakdown) -> String {
+        guard q.facePresent else { return "—" }
+        return String(format: "%.2f %.2f %.2f %.2f %.2f %.2f %.2f", q.size, q.edge, q.centerStability,
+                      q.scaleStability, q.angularStability, q.frameRate, q.visionConfidence)
+    }
 
     private func color(for state: TrackingState?) -> Color {
         switch state {
