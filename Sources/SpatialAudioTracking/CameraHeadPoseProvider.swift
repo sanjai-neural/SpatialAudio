@@ -22,8 +22,26 @@ public final class CameraHeadPoseProvider: NSObject, HeadPoseProvider, AVCapture
     private var handler: (@Sendable (HeadPoseDetection) -> Void)?
     private var deviceName: String?
 
+    // Release evidence (all guarded by `lock`).
+    private struct StopRecord { var wasRunning: Bool; var isRunning: Bool; var inputs: Int; var outputs: Int; var uptime: Double }
+    private var stopRecord: StopRecord?
+    private weak var lastStoppedSession: AVCaptureSession?
+    private var stopObserver: NSObjectProtocol?
+    private var stopNotificationCount = 0
+    private var stopCompleted = false
+    private var callbacksAfterStop = 0
+
     public override init() { super.init() }
-    deinit { stop() }
+    deinit {
+        stop()
+        if let o = stopObserver { NotificationCenter.default.removeObserver(o) }
+    }
+
+    private static func uptimeSeconds() -> Double { Double(clock_gettime_nsec_np(CLOCK_UPTIME_RAW)) / 1_000_000_000 }
+
+    private func noteStopNotification() {
+        lock.lock(); stopNotificationCount += 1; lock.unlock()
+    }
 
     public func currentTime() -> Double {
         lock.lock(); let c = clock; lock.unlock()
@@ -61,14 +79,42 @@ public final class CameraHeadPoseProvider: NSObject, HeadPoseProvider, AVCapture
             deviceName = nil
             lock.unlock()
             guard let s else { return }
+            let wasRunning = s.isRunning
             // Stop the callbacks first, then release the hardware.
             for case let out as AVCaptureVideoDataOutput in s.outputs { out.setSampleBufferDelegate(nil, queue: nil) }
-            s.stopRunning()
+            s.stopRunning()                       // "blocks until the session object has completely stopped"
+            let isRunningAfter = s.isRunning
             s.beginConfiguration()
             s.inputs.forEach { s.removeInput($0) }
             s.outputs.forEach { s.removeOutput($0) }
             s.commitConfiguration()
+            let inputs = s.inputs.count, outputs = s.outputs.count
+            lock.lock()
+            stopRecord = StopRecord(wasRunning: wasRunning, isRunning: isRunningAfter, inputs: inputs,
+                                    outputs: outputs, uptime: Self.uptimeSeconds())
+            lastStoppedSession = s
+            callbacksAfterStop = 0
+            stopCompleted = true
+            lock.unlock()
         }
+    }
+
+    /// Evidence that OUR capture session stopped and released its input/output. It cannot prove the
+    /// physical green camera light is off; that stays a visual check. Re-reads the session's state if the
+    /// session object still exists, so calling this a moment after `stop()` also catches late changes.
+    public func releaseReport() -> CameraReleaseReport? {
+        lock.lock(); defer { lock.unlock() }
+        guard let r = stopRecord else { return nil }
+        let alive = lastStoppedSession
+        return CameraReleaseReport(
+            wasRunningBeforeStop: r.wasRunning,
+            isRunningAfterStop: alive?.isRunning ?? r.isRunning,
+            inputsAfterStop: alive?.inputs.count ?? r.inputs,
+            outputsAfterStop: alive?.outputs.count ?? r.outputs,
+            stopNotificationsObserved: stopNotificationCount,
+            callbacksAfterStop: callbacksAfterStop,
+            sessionObjectDeallocated: alive == nil,
+            secondsSinceStop: Self.uptimeSeconds() - r.uptime)
     }
 
     // MARK: - Private (sessionQueue)
@@ -99,6 +145,12 @@ public final class CameraHeadPoseProvider: NSObject, HeadPoseProvider, AVCapture
         self.handler = handler
         deviceName = device.localizedName
         session = s
+        // Fresh release evidence for this run.
+        stopRecord = nil; lastStoppedSession = nil; stopCompleted = false; callbacksAfterStop = 0; stopNotificationCount = 0
+        if let o = stopObserver { NotificationCenter.default.removeObserver(o) }
+        stopObserver = NotificationCenter.default.addObserver(
+            forName: AVCaptureSession.didStopRunningNotification, object: s, queue: nil
+        ) { [weak self] _ in self?.noteStopNotification() }
         lock.unlock()
 
         s.startRunning()
@@ -116,7 +168,10 @@ public final class CameraHeadPoseProvider: NSObject, HeadPoseProvider, AVCapture
     public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
                               from connection: AVCaptureConnection) {
         let receivedAt = currentTime()
-        lock.lock(); let h = handler; lock.unlock()
+        lock.lock()
+        let h = handler
+        if h == nil && stopCompleted { callbacksAfterStop += 1 }     // a frame arrived after stop() returned
+        lock.unlock()
         guard let h, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
         var face: FaceMeasurement?

@@ -13,7 +13,7 @@ public enum TrackingState: String, Sendable {
 }
 
 /// DEFAULTS ARE UNTUNED PLACEHOLDERS (no user testing yet).
-public struct TrackingStateMachineConfig: Equatable, Sendable {
+public struct TrackingStateMachineConfig: Equatable, Sendable, Codable {
     /// Samples below this confidence count as "lost".
     public var minConfidence: Double
     /// Seconds to freeze the pose after loss before decaying.

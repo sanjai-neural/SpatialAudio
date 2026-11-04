@@ -24,6 +24,14 @@ rm -rf "$OUT"
 mkdir -p "$OUT/Contents/MacOS" "$OUT/Contents/Resources"
 cp "$BIN" "$OUT/Contents/MacOS/$APP_NAME"
 
+# Dev builds remember where the repository is so the self-test can write docs/test-results/. Release builds
+# do not embed a local path.
+REPO_ROOT_KEY=""
+if [[ "$CONFIG" == "debug" ]]; then
+  REPO_ESC="$(pwd | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+  REPO_ROOT_KEY="    <key>SADevRepoRoot</key><string>${REPO_ESC}</string>"
+fi
+
 cat > "$OUT/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -39,6 +47,7 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
+${REPO_ROOT_KEY}
     <key>NSCameraUsageDescription</key>
     <string>SpatialAudio uses the camera to estimate your head orientation for spatial audio. Video frames are processed in memory only; they are never saved or sent anywhere.</string>
 </dict>

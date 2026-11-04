@@ -6,18 +6,39 @@ struct HUDView: View {
     var model: HeadTrackingModel
 
     var body: some View {
+        ScrollView { HUDContent(model: model).padding(16) }
+    }
+}
+
+/// The HUD without its scroll container (so it can also be rendered to an image for layout review).
+struct HUDContent: View {
+    var model: HeadTrackingModel
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 20) {
-                NoseCompass(pose: model.snapshot?.pose ?? .identity, active: model.snapshot != nil)
-                    .frame(width: 170, height: 170)
-                stats
+            if model.isSimulated {
+                Text("SIMULATED INPUT — no camera is used; every number comes from a made-up person. Results are labeled SIMULATED and can not be applied.")
+                    .font(.callout.bold()).foregroundStyle(.white)
+                    .padding(8).frame(maxWidth: .infinity).background(Color.red, in: RoundedRectangle(cornerRadius: 8))
             }
-            Divider()
-            controls
-            Text("Sign conventions are UNVERIFIED until the manual camera test: turn LEFT → yaw should be positive and the arrow should point left; look UP → pitch positive; tilt RIGHT ear down → roll positive.")
-                .font(.caption).foregroundStyle(.secondary)
+            if model.selfTest.isBusy {
+                SelfTestRunPanel(controller: model.selfTest, model: model)
+            } else {
+                HStack(alignment: .top, spacing: 20) {
+                    NoseCompass(pose: model.snapshot?.pose ?? .identity, active: model.snapshot != nil)
+                        .frame(width: 170, height: 170)
+                    stats
+                }
+                Divider()
+                controls
+                SelfTestLauncher(controller: model.selfTest, model: model)
+                if model.selfTest.stage == .finished {
+                    SelfTestResultView(controller: model.selfTest, model: model)
+                }
+                Text("Sign conventions: turn LEFT → yaw +, look UP → pitch +, tilt RIGHT ear down → roll +. Until a self-test has been run on the camera and applied they are UNVERIFIED.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
-        .padding(16)
     }
 
     // MARK: stats
@@ -25,7 +46,7 @@ struct HUDView: View {
     private var stats: some View {
         let s = model.snapshot
         return Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 4) {
-            row("Status", statusText)
+            row("Status", model.statusText)
             row("Camera", model.deviceName ?? "—")
             GridRow {
                 Text("State").foregroundStyle(.secondary)
@@ -68,33 +89,38 @@ struct HUDView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 if model.status == .running || model.status == .starting {
-                    Button("Stop camera") { model.stop() }
+                    Button("Stop camera") { Task { await model.stopAndVerifyRelease() } }
                 } else {
                     Button("Start camera") { model.start() }.keyboardShortcut(.defaultAction)
                 }
                 Button("Recenter") { model.recenter() }.disabled(model.status != .running)
                 if let m = model.recenterMessage { Text(m).font(.caption).foregroundStyle(.secondary) }
             }
+            releaseLine
             HStack {
-                Text("Invert (sign override while verifying):").font(.caption)
+                Text("Invert (manual sign override):").font(.caption)
                 Toggle("yaw", isOn: Binding(get: { model.mapping.invertYaw }, set: { model.setInvert(yaw: $0) }))
                 Toggle("pitch", isOn: Binding(get: { model.mapping.invertPitch }, set: { model.setInvert(pitch: $0) }))
                 Toggle("roll", isOn: Binding(get: { model.mapping.invertRoll }, set: { model.setInvert(roll: $0) }))
+                Button("Reset to documented defaults") { model.resetToDocumentedDefaults() }.font(.caption)
             }
             .toggleStyle(.checkbox)
+            Text("Sign mapping source: \(model.mappingNote)").font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var releaseLine: some View {
+        if model.releaseCheckPending {
+            Text("Camera stopped; checking the capture session…").font(.caption).foregroundStyle(.secondary)
+        } else if let r = model.releaseReport {
+            Text((r.isClean ? "Release check (programmatic): CLEAN" : "Release check (programmatic): NOT CLEAN") +
+                 " — isRunning=\(r.isRunningAfterStop), inputs=\(r.inputsAfterStop), outputs=\(r.outputsAfterStop), frames after stop=\(r.callbacksAfterStop). The green light is still a visual check.")
+                .font(.caption).foregroundStyle(r.isClean ? .green : .red)
         }
     }
 
     // MARK: formatting
-
-    private var statusText: String {
-        switch model.status {
-        case .idle: "idle (camera off)"
-        case .starting: "starting…"
-        case .running: "running"
-        case .failed(let m): "FAILED: \(m)"
-        }
-    }
 
     private func fmt3(_ e: EulerAngles) -> String {
         String(format: "%+7.1f° %+7.1f° %+7.1f°", e.yawDegrees, e.pitchDegrees, e.rollDegrees)
@@ -131,10 +157,10 @@ struct NoseCompass: View {
     var body: some View {
         Canvas { ctx, size in
             let c = CGPoint(x: size.width / 2, y: size.height / 2)
-            let r = min(size.width, size.height) / 2 - 6
+            let r = min(size.width, size.height) / 2 - 16          // leave room above the circle for the label
             ctx.stroke(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)),
                        with: .color(.secondary), lineWidth: 1)
-            ctx.draw(Text("front").font(.caption2), at: CGPoint(x: c.x, y: c.y - r - 0), anchor: .center)
+            ctx.draw(Text("front").font(.caption2), at: CGPoint(x: c.x, y: c.y - r - 9), anchor: .center)
             let v = pose.rotate(.forward)           // +X right, -Z forward
             let tip = CGPoint(x: c.x + v.x * r, y: c.y + v.z * r)   // forward (-Z) maps to screen up
             var p = Path(); p.move(to: c); p.addLine(to: tip)

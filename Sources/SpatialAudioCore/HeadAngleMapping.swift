@@ -31,7 +31,7 @@ public struct VisionFaceAngles: Equatable, Sendable {
 ///          face counterclockwise in the image. UNVERIFIED: confirm with the manual camera test.
 /// - A horizontally mirrored frame flips the sign of yaw and roll (not pitch).
 /// - `invert*` flags are manual overrides, applied last, for use while verifying on hardware.
-public struct HeadAngleMapping: Equatable, Sendable {
+public struct HeadAngleMapping: Equatable, Sendable, Codable {
     public var invertYaw: Bool
     public var invertPitch: Bool
     public var invertRoll: Bool

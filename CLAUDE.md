@@ -20,6 +20,9 @@ Project: macOS-first desktop app giving ordinary headphones head-tracked spatial
 - Privacy: camera frames processed in memory only, never saved, no network code, camera released on stop and exit.
 - Add a dependency only with a stated reason. Unit-test all logic in SpatialAudioCore.
 - Pose handoff to the audio thread: `PoseMailbox` (C11 triple buffer in `Sources/CPoseMailbox`). Keep copies field-by-field (TSan does not race-check the bulk memcpy). After touching it run `scripts/tsan-mailbox.sh` and `swift test --sanitize=thread`; a TSan result only counts if it fails on a deliberately broken variant.
+- Tests must never derive a verdict from a wall-clock deadline or a fixed sleep: this Mac sleeps (idle, lid, low battery), processes get frozen, CPUs get oversubscribed, and a `Date()`-based hang guard failed a stress test after a 97 s sleep (docs/STATUS.md, "PoseMailbox stress-test finding"). Wait on a completion signal, or poll with `waitUntil` (deadline on `SuspendingClock`, which does not advance during sleep), and bound rates by measured elapsed time. Wrap long runs (mutation checks, soaks) in `caffeinate -i`.
+- Test-the-test: a regression test or a TSan run only counts once it has been shown to fail on a deliberately broken variant (mutation check).
+- The simulated user (`--simulate`, `SimulatedUser`, `SimulatedHeadPoseProvider`) produces FABRICATED data. It rehearses the self-test flow and feeds unit tests; its output must never decide sign defaults, latency, or any hardware claim.
 - Build: `swift build`. Test: `swift test` (Swift Testing, `import Testing`; Xcode must be the active developer dir — see docs/STATUS.md). Xcode only for app bundling, signing, notarization.
 
 ## Working protocol (every step)
@@ -27,6 +30,9 @@ Project: macOS-first desktop app giving ordinary headphones head-tracked spatial
 
 ## Step 2 requirement
 Include a minimal script wrapping the executable in a .app bundle with an Info.plist containing `NSCameraUsageDescription` (signing/notarization stay in Step 9).
+
+## Step 2c: guided self-test (HUD) and the gate it creates
+The HUD has a guided self-test (docs/MANUAL_TEST_STEP2.md): it records raw Vision yaw/pitch/roll per instructed move, decides each axis' sign or says INCONCLUSIVE, analyzes the lose-face sequence, measures fps/latency, and saves a numbers-only report to docs/test-results/. All of it is UNVERIFIED until Sanjai has run it on the real camera. **Gate: no audio renderer (Step 3) until Sanjai confirms the signs from a real self-test report; never hard-code signs from guesses; never push without asking.**
 
 ## Roadmap
 0 Setup · 1 Core (quaternion, One-Euro, calibration, state machine, 7.1.4 layout) · 2 Head tracking + HUD · 3 M1 renderer (AVAudioEnvironmentNode HRTF) · 4 M1b 12-speaker bed · 5 Measurements · 6 M2 system audio (Core Audio tap) · 7 M3 virtual-device spike · 8 M4 quality (SOFA, convolution, EQ) · 9 Release · 10 Product. Later: 6DoF, personalization, Windows.

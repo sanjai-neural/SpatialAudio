@@ -60,6 +60,7 @@ public final class HeadTracker: @unchecked Sendable {
     private let config: HeadTrackerConfig
     private let clock: @Sendable () -> Double
     private let watchdogQueue = DispatchQueue(label: "spatialaudio.tracker.watchdog", qos: .userInitiated)
+    private let watchdogKey = DispatchSpecificKey<Void>()
 
     private let lock = NSLock()
     private var pipeline: HeadPosePipeline
@@ -80,6 +81,7 @@ public final class HeadTracker: @unchecked Sendable {
         self.clock = clock
         self.pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine)
         self.estimator = TrackingQualityEstimator(config: config.quality)
+        watchdogQueue.setSpecific(key: watchdogKey, value: ())
     }
 
     deinit { watchdogTimer?.cancel() }
@@ -91,8 +93,14 @@ public final class HeadTracker: @unchecked Sendable {
         lock.lock(); snapshotHandler = handler; lock.unlock()
     }
 
+    /// Changing the sign mapping restarts the filter, state machine and calibration: all three live in the
+    /// MAPPED orientation space, so after a sign change their state (and the neutral pose) is meaningless.
+    /// The user must Recenter afterwards. Setting an identical mapping changes nothing.
     public func setMapping(_ m: HeadAngleMapping) {
-        lock.lock(); mapping = m; lock.unlock()
+        lock.lock(); defer { lock.unlock() }
+        guard m != mapping else { return }
+        mapping = m
+        pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine)
     }
 
     /// Make the current head orientation neutral. False if not currently locked.
@@ -199,5 +207,8 @@ public final class HeadTracker: @unchecked Sendable {
     private func stopWatchdog() {
         lock.lock(); let t = watchdogTimer; watchdogTimer = nil; lock.unlock()
         t?.cancel()
+        // Wait for a tick that is already running, so no watchdog snapshot can arrive after stop() returns.
+        // (The lock is not held here; skipped if called from the watchdog queue itself.)
+        if t != nil, DispatchQueue.getSpecific(key: watchdogKey) == nil { watchdogQueue.sync {} }
     }
 }

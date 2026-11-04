@@ -50,4 +50,10 @@ public protocol HeadPoseProvider: AnyObject, Sendable {
     func start(handler: @escaping @Sendable (HeadPoseDetection) -> Void) async throws
     /// Stop delivery and release the underlying hardware. Blocks until released. Idempotent.
     func stop()
+    /// Programmatic evidence about the most recent `stop()`; nil if none happened or the provider has no hardware.
+    func releaseReport() -> CameraReleaseReport?
+}
+
+extension HeadPoseProvider {
+    public func releaseReport() -> CameraReleaseReport? { nil }
 }

@@ -131,7 +131,7 @@ func detection(at t: Double, yaw: Double = 0, pitch: Double = 0, roll: Double = 
 
     @Test func snapshotHandlerReceivesEveryFrame() async throws {
         let fake = FakeProvider()
-        let t = HeadTracker(provider: fake)
+        let t = HeadTracker(provider: fake, config: noWatchdogConfig())   // a real watchdog tick must not add snapshots
         let box = Box()
         t.setSnapshotHandler { box.append($0) }
         try await t.start()
@@ -150,7 +150,7 @@ func detection(at t: Double, yaw: Double = 0, pitch: Double = 0, roll: Double = 
 
     @Test func calibrationSurvivesRestart() async throws {
         let fake = FakeProvider()
-        let t = HeadTracker(provider: fake)
+        let t = HeadTracker(provider: fake, config: noWatchdogConfig())
         _ = feed(t, from: 0, seconds: 2) { detection(at: $0, yaw: 25) }
         #expect(t.recenter())
         try await t.start()                                  // restart: fresh filter/state, same neutral
@@ -162,6 +162,26 @@ func detection(at t: Double, yaw: Double = 0, pitch: Double = 0, roll: Double = 
 }
 
 // MARK: - Quality gating and watchdog
+
+/// Polls `condition` until it holds. Fails (returns false) only after `timeout` seconds of AWAKE time:
+/// `SuspendingClock` stops advancing while the Mac sleeps, so a system sleep or a frozen process can never
+/// produce a spurious timeout. Never derive a pass/fail verdict from a fixed sleep or a wall-clock deadline.
+func waitUntil(timeout: Double = 20, _ condition: () -> Bool) async -> Bool {
+    let clock = SuspendingClock()
+    let deadline = clock.now.advanced(by: .seconds(timeout))
+    while !condition() {
+        if clock.now >= deadline { return false }
+        try? await Task.sleep(nanoseconds: 2_000_000)
+    }
+    return true
+}
+
+/// A tracker config whose watchdog can never fire during a test that is not about the watchdog.
+func noWatchdogConfig() -> HeadTrackerConfig {
+    var c = HeadTrackerConfig()
+    c.frameTimeout = 3600
+    return c
+}
 
 /// Thread-safe settable clock for driving the watchdog deterministically.
 final class FakeClock: @unchecked Sendable {
@@ -321,13 +341,36 @@ final class FakeClock: @unchecked Sendable {
         let box = WatchdogBox(); t.setSnapshotHandler { s in if s.isWatchdogTick { box.hit() } }
         try await t.start()
         fake.handler?(detection(at: 0, yaw: 10))                       // one frame, then silence
-        for _ in 0..<200 where box.count == 0 { try await Task.sleep(nanoseconds: 10_000_000) }   // up to 2 s
-        #expect(box.count > 0)
+        let fired = await waitUntil { box.count > 0 }
+        #expect(fired)
         t.stop()
-        try await Task.sleep(nanoseconds: 100_000_000)                 // let any in-flight tick drain
-        let after = box.count
-        try await Task.sleep(nanoseconds: 200_000_000)
+        let after = box.count                                          // stop() drains an in-flight tick, so this is final
+        try await Task.sleep(nanoseconds: 150_000_000)
         #expect(box.count == after)                                    // no ticks after stop
+    }
+
+    /// Regression: stop() used to cancel the watchdog timer without waiting for a tick already running, so one
+    /// more watchdog snapshot could be delivered after stop() returned.
+    @Test func noWatchdogSnapshotIsDeliveredAfterStopReturns() async throws {
+        var cfg = HeadTrackerConfig()
+        cfg.frameTimeout = 0                                           // every tick after the first frame emits a snapshot
+        cfg.watchdogInterval = 0.0005                                  // a tick every 0.5 ms: one is often in flight
+        for iteration in 0..<200 {
+            let fake = FakeProvider()
+            let t = HeadTracker(provider: fake, config: cfg)
+            // A deliberately slow consumer (0.2 ms) keeps a tick in flight most of the time, so the race this guards
+            // against is hit reliably instead of once in thousands of runs. The count is bumped AFTER the delay.
+            let box = WatchdogBox(); t.setSnapshotHandler { s in
+                if s.isWatchdogTick { Thread.sleep(forTimeInterval: 0.0002); box.hit() }
+            }
+            try await t.start()
+            fake.handler?(detection(at: 0, yaw: 10))
+            try await Task.sleep(nanoseconds: UInt64(300_000 + (iteration % 7) * 200_000))
+            t.stop()
+            let n = box.count
+            try await Task.sleep(nanoseconds: 3_000_000)
+            #expect(box.count == n, "iteration \(iteration): a watchdog snapshot arrived after stop() returned")
+        }
     }
 
     @Test func monotonicClockAdvancesAndNeverGoesBackwards() {

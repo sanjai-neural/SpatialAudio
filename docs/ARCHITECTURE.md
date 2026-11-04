@@ -32,6 +32,28 @@ AVCaptureSession (640x480, serial video queue, late frames dropped)
 - Mirroring: never set; read per frame; yaw and roll signs are flipped by the mapping when a frame is mirrored.
 - Latency fields per frame: delivery (received − capture timestamp), vision (detected − received), total (pose ready − capture timestamp).
 
+## Guided self-test (Step 2c) — logic IMPLEMENTED (verified by unit tests); real-camera behavior UNVERIFIED
+```
+HeadTracker snapshots (+ watchdog ticks)
+  -> HeadTrackingModel.receive(snapshot, arrival)         arrival = CLOCK_UPTIME_RAW stamped on the capture queue
+  -> SelfTestController   (App: only orchestration + I/O: clock ticks, cue sounds, files, clipboard)
+       -> SelfTestSession  (Core, pure: plays SelfTestScript against the clock it is handed; files each frame
+                            under the phase it ARRIVED in; emits phase-start events once, in order)
+       -> SelfTestAnalyzer (Core, pure)
+            SignDetector  : raw Vision angles per instructed move -> per-axis sign or INCONCLUSIVE
+            LossAnalyzer  : locked/holding/decaying/static/locked sequence, time in state, largest pose step
+            StatsAnalyzer : fps, delivery, Vision, total latency (mean / p95 / max) over the 30 s hold+rest window
+       -> SelfTestReport   (Core: numbers + short strings; JSON and markdown; no image data can be expressed)
+       -> ReportStore (App) -> docs/test-results/*.json|.md
+  -> model.stopAndVerifyRelease() -> CameraReleaseReport (programmatic) -> user answers the green-light question (visual)
+```
+- **Sign semantics.** The detector works on RAW Vision angles (before `HeadAngleMapping`) as hold-minus-reference differences, so rest offsets cancel. The invert flag it reports is derived by pushing the measured delta through the REAL `HeadAngleMapping` (including its mirror compensation), so it cannot disagree with the mapping. It cannot know which physical direction the person moved; the prompts and the report say so.
+- **Thresholds** (all untuned proposals, printed in every report): movement ≥ 15° yaw / 10° pitch / 10° roll and ≥ 5× the reference-window noise; hold spread ≤ 40% of the movement; both repetitions usable and the same sign; other axes ≤ 0.6× the intended one; ≥ 10 reference / 15 hold samples and a face in ≥ 60% of hold frames. Loss test: pose-step threshold = max(10°, 1.25 × the largest step the eased blend could legitimately produce), a held pose < 10° from neutral marks the jump check WEAK.
+- **Apply.** Only after an explicit confirmation: sets the invert flags of the DETERMINED axes (inconclusive axes keep their current setting), stores them in `UserDefaults`, and resets the filter, state machine and calibration (they live in mapped space; the user must Recenter). Never applied from a SIMULATED run.
+- **Camera release evidence** is what code can prove: `AVCaptureSession.isRunning` read right after `stopRunning()` returned (it "blocks until the session object has completely stopped"), inputs/outputs removed, no sample callbacks after stop. Stop notifications and "session object freed" are INFORMATIONAL (they depend on the run loop and timing; verified on a camera-less session that they arrive only while the run loop spins). The physical green light is a visual check.
+- **Simulated user** (`SimulatedUser`, `SimulatedHeadPoseProvider`, `--simulate`): deterministic made-up person for unit tests and for rehearsing the flow without a camera. Fabricated data, labeled SIMULATED everywhere, never usable for decisions about hardware.
+- **Developer switches** (`LaunchOptions`): `--simulate`, `--sim-flip=…`, `--sim-mirrored`, `--autorun-selftest`, `--exit-after-selftest`, `--mute`, `--lighting=…`, `--results-dir=…`, `--render-ui=…` (renders the HUD to PNG in-process; used to review layout without screen-recording permission).
+
 ## Conventions (IMPLEMENTED, pinned by tests)
 - Right-handed; +X right, +Y up, forward = −Z (matches AVAudioEnvironmentNode).
 - Pose: yaw about +Y (positive = turn left), pitch about +X (positive = look up), roll about forward (positive = right ear down). Euler order yaw → pitch → roll; Euler used only at API boundaries.

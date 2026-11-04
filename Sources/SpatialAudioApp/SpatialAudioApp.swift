@@ -8,8 +8,18 @@ struct SpatialAudioApp: App {
     var body: some Scene {
         Window("SpatialAudio — Head Tracking HUD", id: "hud") {
             HUDView(model: HeadTrackingModel.shared)
-                .frame(minWidth: 560, minHeight: 440)
+                .frame(minWidth: 760, minHeight: 640)
+                .task {
+                    // Developer switch (see LaunchOptions): start the self-test without clicking.
+                    if let dir = LaunchOptions.current.renderDirectory {
+                        await UIRenderer.runSchedule(into: dir, model: HeadTrackingModel.shared)
+                    } else if LaunchOptions.current.autorunSelfTest {
+                        try? await Task.sleep(for: .milliseconds(600))
+                        HeadTrackingModel.shared.selfTest.run()
+                    }
+                }
         }
+        .defaultSize(width: 820, height: 760)
     }
 }
 
