@@ -1,0 +1,14 @@
+.DS_Store
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+xcuserdata/
+DerivedData/
+*.xcworkspace/xcuserdata/
+Package.resolved.bak
+# Privacy: never commit captured media or logs
+*.mov
+*.mp4
+*.wav
+*.caf
+*.log
