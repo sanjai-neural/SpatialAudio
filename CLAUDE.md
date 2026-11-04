@@ -18,7 +18,7 @@ Project: macOS-first desktop app giving ordinary headphones head-tracked spatial
 - Audio callback: no locks, allocation, file/network I/O, or logging. Pose handoff via lock-free latest-value slot, interpolated per audio block.
 - Privacy: camera frames processed in memory only, never saved, no network code, camera released on stop and exit.
 - Add a dependency only with a stated reason. Unit-test all logic in SpatialAudioCore.
-- Build: `swift build`. Test: `scripts/test.sh` (wraps `swift test`; needed while only Command Line Tools are installed — see docs/STATUS.md). Xcode only for app bundling, signing, notarization.
+- Build: `swift build`. Test: `swift test` (Swift Testing, `import Testing`; Xcode must be the active developer dir — see docs/STATUS.md). Xcode only for app bundling, signing, notarization.
 
 ## Working protocol (every step)
 1. Restate goal + exit criteria (2–3 lines). 2. Inspect relevant files. 3. Explain approach/trade-offs/risks. 4. Implement the smallest suitable change, complete code. 5. Run build + tests, report real output; for camera/headphone/ear checks give exact manual steps and wait. 6. Update docs/STATUS.md and commit. 7. STOP and wait for Sanjai's confirmation before the next step.
