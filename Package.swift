@@ -29,5 +29,6 @@ let package = Package(
         ),
 
         .testTarget(name: "SpatialAudioCoreTests", dependencies: ["SpatialAudioCore"]),
+        .testTarget(name: "SpatialAudioTrackingTests", dependencies: ["SpatialAudioTracking", "SpatialAudioCore"]),
     ]
 )

@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-Status: SpatialAudioCore is IMPLEMENTED (verified by unit tests, Step 1). Tracking, Engine and App are placeholders. Everything else below is PLANNED.
+Status: SpatialAudioCore is IMPLEMENTED (verified by unit tests). SpatialAudioTracking and the HUD in SpatialAudioApp are IMPLEMENTED-UNVERIFIED on hardware (Step 2; logic tested with fakes, camera not yet exercised). SpatialAudioEngine is a placeholder. Everything else below is PLANNED.
 
 ## Modules (Swift Package `SpatialAudio`, macOS 14+)
 ```
@@ -15,6 +15,19 @@ SpatialAudioApp ──► SpatialAudioTracking ──► SpatialAudioCore
 
 ## Data flow (target)
 camera → Vision → raw pose → One-Euro filter → state machine (Locked/Holding/Decaying/Static) → calibrated quaternion → lock-free latest-value slot → audio thread interpolates per block → renderer listener orientation.
+
+## Head tracking (Step 2)
+```
+AVCaptureSession (640x480, serial video queue, late frames dropped)
+  -> VisionFaceDetector  (VNDetectFaceRectanglesRequest rev 3: yaw/pitch/roll in radians, Vision conventions)
+  -> HeadPoseDetection   (timestamps on session sync clock, mirrored flag, rotation angle, error)
+  -> HeadTracker         (HeadAngleMapping -> HeadPosePipeline -> TrackingSnapshot)   [no AVFoundation/Vision here]
+  -> HeadTrackingModel   (@MainActor view model) -> HUDView
+```
+- `HeadPoseProvider` is the seam: the camera implementation is `CameraHeadPoseProvider`; tests use a fake.
+- API facts verified against the macOS 27.2 SDK headers on 2026-11-04: Vision `yaw/pitch/roll` exist on `VNFaceObservation` (revision 3 required for pitch and continuous values); header signs: yaw "counterclockwise", pitch "positive = nodding down", roll "counterclockwise"; `AVCaptureConnection.isVideoMirrored` exists on macOS but `automaticallyAdjustsVideoMirroring` does not; `AVCaptureSession.synchronizationClock` (macOS 12.3+) is the timebase of output timestamps.
+- Mirroring: never set; read per frame; yaw and roll signs are flipped by the mapping when a frame is mirrored.
+- Latency fields per frame: delivery (received − capture timestamp), vision (detected − received), total (pose ready − capture timestamp).
 
 ## Conventions (IMPLEMENTED, pinned by tests)
 - Right-handed; +X right, +Y up, forward = −Z (matches AVAudioEnvironmentNode).
