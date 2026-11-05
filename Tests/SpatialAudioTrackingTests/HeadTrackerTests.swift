@@ -107,7 +107,7 @@ func detection(at t: Double, yaw: Double = 0, pitch: Double = 0, roll: Double = 
             #expect(s.visionAngles == nil && s.facesDetected == 0)
             tt += dt
         }
-        #expect(states == [.holding, .decaying, .static])
+        #expect(states == [.locked, .holding, .decaying, .static])   // .locked = the 0.1 s the gate coasts before it declares the loss
         #expect(maxStep < 40.0 / 45 * 1.6)         // 1.5 s decay at 30 fps = 45 frames, smoothstep peak 1.5x
         #expect(prev!.angle(to: .identity) < 1e-9)
     }
@@ -194,7 +194,7 @@ final class FakeClock: @unchecked Sendable {
 @Suite struct QualityGateTests {
     let dt = 1.0 / 30
 
-    @Test func lowQualityFaceCountsAsLossAndFreezesPose() {
+    @Test func lowQualityFaceFreezesThePoseAndCountsAsLossOnlyAfterTheDwell() {
         let t = HeadTracker(provider: FakeProvider())
         var tt = 0.0
         var locked: TrackingSnapshot!
@@ -202,10 +202,14 @@ final class FakeClock: @unchecked Sendable {
         #expect(locked.state == .locked && locked.quality.overall == 1)
         // The face shrinks to a tiny box (far away / badly detected): quality 0 even though Vision still reports angles.
         let tiny = NormalizedRect(x: 0.4, y: 0.4, width: 0.03, height: 0.04)
-        let s = t.ingest(detection(at: tt, yaw: 70, box: tiny))
-        #expect(s.quality.overall == 0 && s.quality.limiting == "size")
-        #expect(s.state == .holding)
-        #expect(abs(s.euler.yawDegrees - 20) < 1)            // the bad angles (70°) never reached the pose
+        let first = t.ingest(detection(at: tt, yaw: 70, box: tiny)); tt += dt
+        #expect(first.quality.overall == 0 && first.quality.limiting == "size")
+        #expect(first.state == .locked)                       // one bad frame is not yet a loss: the pose coasts
+        #expect(abs(first.euler.yawDegrees - 20) < 1)         // the bad angles (70°) never reached the pose
+        var last = first
+        while tt < 2 + 0.3 { last = t.ingest(detection(at: tt, yaw: 70, box: tiny)); tt += dt }
+        #expect(last.state == .holding)                       // sustained low quality (> 0.1 s) is a loss
+        #expect(abs(last.euler.yawDegrees - 20) < 1)
     }
 
     @Test func singleGlitchFrameIsRejectedAndTrackingRecoversWithoutJump() {
@@ -215,7 +219,8 @@ final class FakeClock: @unchecked Sendable {
         var maxStep = 0.0
         var prev = t.ingest(detection(at: tt, yaw: 20)).pose; tt += dt
         let glitch = t.ingest(detection(at: tt, yaw: 20, box: NormalizedRect(x: 0.62, y: 0.25, width: 0.3, height: 0.45)))  // box jumps ~0.71 face sizes, stays inside the frame
-        #expect(glitch.quality.limiting == "center jump" && glitch.state == .holding)
+        #expect(glitch.quality.limiting == "center jump" && glitch.state == .locked)   // coasted: not even a hold for one bad frame
+        #expect(glitch.pose == prev)
         maxStep = max(maxStep, prev.angle(to: glitch.pose) * 180 / .pi); prev = glitch.pose; tt += dt
         for _ in 0..<45 {
             let s = t.ingest(detection(at: tt, yaw: 20)); tt += dt
@@ -324,8 +329,9 @@ final class FakeClock: @unchecked Sendable {
         #expect(beforeResume.angle(to: .identity) > 0.1)                   // not yet at neutral
         var maxStep = 0.0
         var prev = beforeResume
-        for _ in 0..<60 {                                                  // 2 s of frames again, new camera timeline
-            let s = t.ingest(detection(at: tt + 100, yaw: 40)); clock.advance(dt); tt += dt
+        tt += 0.6                                                          // the camera clock kept running during the silence
+        for _ in 0..<60 {                                                  // 2 s of frames again (0.2 s of them only count after the recovery dwell)
+            let s = t.ingest(detection(at: tt, yaw: 40)); clock.advance(dt); tt += dt
             maxStep = max(maxStep, prev.angle(to: s.pose) * 180 / .pi); prev = s.pose
         }
         #expect(maxStep < 40.0 / 7 * 1.6)                                  // 0.25 s blend at 30 fps ≈ 7.5 frames

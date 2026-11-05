@@ -35,6 +35,9 @@ public enum LossVerdict: String, Codable, Sendable {
     case fail
     /// The expected sequence was not completed (e.g. never reached static or never reacquired).
     case incomplete
+    /// The run can not be judged: tracking was not LOCKED when the cover cue came, so what followed says nothing about a
+    /// clean loss (Step 2d; the real 08:12 report started in `decaying`). Repeat the test.
+    case invalid
 }
 
 public struct StateSeconds: Codable, Equatable, Sendable {
@@ -69,6 +72,11 @@ public struct LossReport: Codable, Equatable, Sendable {
     public var framesAnalyzed: Int
     public var ignoredGapPairs: Int
     public var notes: [String]
+    /// Why the verdict is INVALID (nil otherwise).
+    public var invalidReason: String? = nil
+    /// Numbers-only window of raw Vision angles, mapped angles and the output pose around the largest step, with a
+    /// description of its shape.
+    public var stepEvidence: StepEvidence? = nil
 }
 
 public enum LossAnalyzer {
@@ -79,9 +87,11 @@ public enum LossAnalyzer {
     ]
 
     /// All times are absolute monotonic seconds on the same clock as `SelfTestFrame.arrival`.
+    /// `invalidReason`: pass a reason when the caller already knows the run can not be judged (the session's lock gate gave up).
     public static func analyze(frames: [SelfTestFrame], coverStart: Double, uncoverStart: Double, end: Double,
                                machine: TrackingStateMachineConfig,
-                               config: LossAnalysisConfig = LossAnalysisConfig()) -> LossReport {
+                               config: LossAnalysisConfig = LossAnalysisConfig(),
+                               invalidReason knownInvalidReason: String? = nil) -> LossReport {
         let expected = expectedSequence.map(\.rawValue)
         var notes: [String] = []
         let sorted = frames.sorted { $0.arrival < $1.arrival }
@@ -95,9 +105,24 @@ public enum LossAnalyzer {
                        maxFrameJumpDegrees: 0, maxJumpState: nil, maxJumpSecondsAfterCoverCue: nil,
                        jumpThresholdDegrees: config.jumpThresholdFloorDegrees, jumpFlagged: false,
                        heldPoseTravelDegrees: nil, reacquirePoseTravelDegrees: nil, jumpCheckMeaningful: false,
-                       framesAnalyzed: window.count, ignoredGapPairs: 0, notes: [why])
+                       framesAnalyzed: window.count, ignoredGapPairs: 0, notes: [why],
+                       invalidReason: knownInvalidReason)
         }
         guard window.count >= 5 else { return empty("too few frames in the loss window (\(window.count))") }
+
+        // --- Was tracking LOCKED when the cover cue came? ---------------------------------------------
+        var invalidReason = knownInvalidReason
+        if invalidReason == nil {
+            let before = window.filter { $0.arrival < coverStart }
+            let notLocked = before.filter { $0.state != .locked }
+            if before.isEmpty {
+                invalidReason = "no frames arrived in the \(config.sequenceLeadInSeconds) s before the cover cue"
+            } else if !notLocked.isEmpty {
+                let states = Set(notLocked.map { $0.state.rawValue }).sorted().joined(separator: ", ")
+                invalidReason = String(format: "tracking was not LOCKED in the %.1f s before the cover cue (%.0f%% of those frames were %@): the loss test needs a locked start, so this run says nothing about a clean loss. Repeat it with a smaller turn and a steady head",
+                                       config.sequenceLeadInSeconds, Double(notLocked.count) / Double(before.count) * 100, states)
+            }
+        }
 
         // --- State runs -------------------------------------------------------------------------------
         struct Run { var state: TrackingState; var start: Double; var firstIndex: Int; var lastIndex: Int }
@@ -150,11 +175,12 @@ public enum LossAnalyzer {
         var maxStep = 0.0
         var maxState: TrackingState?
         var maxAt: Double?
+        var maxArrival: Double?
         var ignored = 0
         for (a, b) in zip(analysisFrames, analysisFrames.dropFirst()) {
             if b.arrival - a.arrival > config.ignoreGapFactor * medianDt { ignored += 1; continue }
             let step = a.pose.angle(to: b.pose) * 180 / .pi
-            if step > maxStep { maxStep = step; maxState = b.state; maxAt = b.arrival - coverStart }
+            if step > maxStep { maxStep = step; maxState = b.state; maxAt = b.arrival - coverStart; maxArrival = b.arrival }
         }
 
         let identity = Quaternion.identity
@@ -199,8 +225,16 @@ public enum LossAnalyzer {
         if let r = reacquire, r < 0 { notes.append("the face reappeared before the uncover cue") }
 
         // --- Verdict ----------------------------------------------------------------------------------
+        var evidence: StepEvidence?
+        if let arrival = maxArrival, let index = sorted.firstIndex(where: { $0.arrival == arrival }) {
+            evidence = StepEvidenceAnalyzer.build(frames: sorted, stepIndex: index, stepDegrees: maxStep,
+                                                  coverStart: coverStart, framesPerSecond: fps)
+        }
+        if let reason = invalidReason { notes.insert("INVALID: " + reason, at: 0) }
+
         let verdict: LossVerdict
-        if flagged || !illegal.isEmpty { verdict = .fail }
+        if invalidReason != nil { verdict = .invalid }
+        else if flagged || !illegal.isEmpty { verdict = .fail }
         else if observed == expected { verdict = .pass }
         else {
             verdict = .incomplete
@@ -216,6 +250,7 @@ public enum LossAnalyzer {
             maxFrameJumpDegrees: maxStep, maxJumpState: maxState?.rawValue, maxJumpSecondsAfterCoverCue: maxAt,
             jumpThresholdDegrees: threshold, jumpFlagged: flagged, heldPoseTravelDegrees: heldTravel,
             reacquirePoseTravelDegrees: reacquireTravel, jumpCheckMeaningful: meaningful,
-            framesAnalyzed: window.count, ignoredGapPairs: ignored, notes: notes)
+            framesAnalyzed: window.count, ignoredGapPairs: ignored, notes: notes,
+            invalidReason: invalidReason, stepEvidence: evidence)
     }
 }

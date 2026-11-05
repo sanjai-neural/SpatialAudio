@@ -110,8 +110,13 @@ private func context(simulated: Bool = true, mapping: HeadAngleMapping = HeadAng
         let t = HeadTracker(provider: FakeProvider())
         #expect(lock(t, yaw: 25).state == .locked)
         t.setMapping(HeadAngleMapping(invertPitch: true))
-        let first = t.ingest(detection(at: 3, yaw: 25))
-        #expect(first.state == .locked && abs(first.pose.angle(to: .identity)) < 1e-9)   // fresh blend from neutral, no jump to a stale pose
+        // The restart also resets the quality gate: tracking resumes only after the 0.2 s recovery dwell, and the first
+        // locked pose is a fresh blend from neutral (not a jump to the stale pre-change pose).
+        var first = t.ingest(detection(at: 3, yaw: 25))
+        #expect(first.state == .static && abs(first.pose.angle(to: .identity)) < 1e-9)
+        var tt = 3 + 1.0 / 30
+        while first.state != .locked && tt < 4 { first = t.ingest(detection(at: tt, yaw: 25)); tt += 1.0 / 30 }
+        #expect(first.state == .locked && abs(first.pose.angle(to: .identity)) < 1e-9)
     }
 }
 

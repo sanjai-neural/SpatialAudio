@@ -21,6 +21,8 @@ final class SelfTestController {
     private(set) var confirmingApply = false
     private(set) var appliedNote: String?
     private(set) var releaseCheckRunning = false
+    /// Live per-axis coaching for the phase that is running (nil when the phase needs none).
+    private(set) var coach: CoachFeedback?
 
     @ObservationIgnored private weak var model: HeadTrackingModel?
     @ObservationIgnored private var session: SelfTestSession?
@@ -83,6 +85,7 @@ final class SelfTestController {
         tickTask?.cancel(); tickTask = nil
         stage = .idle
         status = nil
+        coach = nil
         message = "Self-test aborted. Nothing was saved."
     }
 
@@ -92,6 +95,7 @@ final class SelfTestController {
         let events = s.advance(to: now)
         session = s
         status = s.status(at: now)
+        coach = SelfTestCoach.feedback(session: s, now: now)
         var cue: SelfTestCue?
         var finished = false
         for e in events {
@@ -125,13 +129,21 @@ final class SelfTestController {
             capturePreset: "640x480 (AVCaptureSession.Preset.vga640x480)",
             visionRevision: VisionFaceDetector.revisionInUse,
             mappingDuringTest: model.mapping,
-            machine: model.trackerConfig.machine)
+            machine: model.trackerConfig.machine,
+            gate: model.trackerConfig.gate)
         report = SelfTestAnalyzer.analyze(s, context: context)
         stem = SelfTestReport.fileStem(date: now, lighting: s.lighting, simulated: simulated)
         let frames = s.framesByPhase.reduce(0) { $0 + $1.count }
-        message = frames < 100 ? "Only \(frames) frames were received during the test; the results are not meaningful." : nil
+        if frames < 100 {
+            message = "Only \(frames) frames were received during the test; the results are not meaningful."
+        } else if s.lossGateFailed {
+            message = "The loss test could not run: tracking never stayed LOCKED for a full second, so the camera was never covered. Everything else was recorded; repeat the test with smaller, steadier moves."
+        } else {
+            message = nil
+        }
         session = nil
         status = nil
+        coach = nil
         stage = .finished
         CueSounds.play(.done)
         persist()
@@ -164,7 +176,7 @@ final class SelfTestController {
 
     private func resetResults() {
         report = nil; savedFiles = []; saveError = nil; message = nil
-        confirmingApply = false; appliedNote = nil; releaseCheckRunning = false; status = nil
+        confirmingApply = false; appliedNote = nil; releaseCheckRunning = false; status = nil; coach = nil
     }
 
     // MARK: results actions
@@ -180,12 +192,20 @@ final class SelfTestController {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(report.markdown(), forType: .string)
-        message = "Report copied to the clipboard."
+        message = needsGreenLightAnswer
+            ? "Report copied. The green-light question is still unanswered, so the copy says \"NOT ANSWERED\". Answer it at the top of the results, then copy again."
+            : "Report copied to the clipboard."
     }
 
     func revealFiles() {
         guard !savedFiles.isEmpty else { return }
         NSWorkspace.shared.activateFileViewerSelecting(savedFiles)
+    }
+
+    /// True while a real (non-simulated) run is waiting for the yes / no answer about the camera light.
+    var needsGreenLightAnswer: Bool {
+        guard let report else { return false }
+        return !report.isSimulated && report.greenLight == .notAnswered
     }
 
     func answerGreenLight(isOff: Bool) {

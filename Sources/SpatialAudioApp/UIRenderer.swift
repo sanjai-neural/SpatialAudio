@@ -39,7 +39,7 @@ enum UIRenderer {
             try? await Task.sleep(for: .milliseconds(200))
         }
         try? await Task.sleep(for: .milliseconds(300))
-        shot("4-results.png", height: 1500)
+        shot("4-results.png", height: 2300)
         NSApplication.shared.terminate(nil)
     }
 }

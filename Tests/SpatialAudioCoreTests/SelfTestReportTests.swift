@@ -21,9 +21,9 @@ import Foundation
     @Test func measuredDeltasMatchTheSimulatedMovement() throws {
         let r = SelfTestAnalyzer.analyze(simulateSession(), context: testContext()).signs
         let yaw = try #require(r.yaw.repetitions.first), pitch = try #require(r.pitch.repetitions.first), roll = try #require(r.roll.repetitions.first)
-        #expect(abs(yaw.intendedDeltaDegrees - 45) < 2)
-        #expect(abs(pitch.intendedDeltaDegrees - (-25)) < 2)            // up is raw-negative in Vision's convention
-        #expect(abs(roll.intendedDeltaDegrees - 25) < 2)
+        #expect(abs(yaw.intendedDeltaDegrees - 30) < 2)                 // the simulated person makes the coached moves: 30° / 20° / 20°
+        #expect(abs(pitch.intendedDeltaDegrees - (-20)) < 2)            // up is raw-negative in Vision's convention
+        #expect(abs(roll.intendedDeltaDegrees - 20) < 2)
         #expect(yaw.leakageRatio < 0.2 && pitch.leakageRatio < 0.2 && roll.leakageRatio < 0.2)
     }
 
@@ -143,7 +143,7 @@ import Foundation
     /// array is long (a pixel buffer or per-frame dump would be), and the file is small.
     @Test func reportContainsOnlyNumbersAndShortStrings() throws {
         let data = try sample().jsonData()
-        #expect(data.count < 40_000)
+        #expect(data.count < 100_000)       // about 46 KB with the 31-frame evidence window; it was 9 KB before Step 2d
         func walk(_ any: Any, depth: Int = 0) {
             switch any {
             case let d as [String: Any]: for (_, v) in d { walk(v, depth: depth + 1) }
@@ -161,7 +161,7 @@ import Foundation
     @Test func markdownContainsTheKeyFacts() {
         let md = sample().markdown()
         for needle in ["# SpatialAudio self-test report", "normal light", "DETERMINED", "## 2. Loss test", "PASS",
-                       "## 3. Statistics (30 s window", "p95", "CLEAN", "user reports OFF", "Applied by the user",
+                       "## 3. Statistics (30 s window", "p95", "CLEAN", "yes — the light went OFF", "Applied by the user",
                        "Thresholds used (all untuned)", "LEFT = +yaw", "Mac16,12"] {
             #expect(md.contains(needle), "missing: \(needle)")
         }
@@ -174,7 +174,8 @@ import Foundation
         #expect(sim.contains("n/a — simulated input has no camera hardware") && !sim.contains("not run"))
         let cam = SelfTestAnalyzer.analyze(simulateSession(), context: testContext(simulated: false)).markdown()
         #expect(cam.contains("not available (the camera was not stopped and read back)"))
-        #expect(cam.contains("not asked"))                                       // green light unanswered
+        #expect(cam.contains("NOT ANSWERED"))                                    // the question was shown, nobody answered
+        #expect(sim.contains("not asked (no camera light applies)"))
         #expect(!cam.contains("listed below") && cam.contains("listed in this report"))
     }
 

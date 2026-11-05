@@ -153,7 +153,7 @@ private func analyze(_ r: LossRun, machine: TrackingStateMachineConfig = Trackin
                           qualityOverall: 1, deliveryLatency: 0, visionDuration: 0, totalLatency: 0)
         }
         let frames = (0..<60).map { f(2 + Double($0) / 30, $0 < 20 ? .locked : ($0 < 40 ? .static : .locked)) }
-        let r = LossAnalyzer.analyze(frames: frames, coverStart: 3, uncoverStart: 3.7, end: 4, machine: TrackingStateMachineConfig())
+        let r = LossAnalyzer.analyze(frames: frames, coverStart: 2.5, uncoverStart: 3.2, end: 4, machine: TrackingStateMachineConfig())
         #expect(r.verdict == .fail && r.notes.contains { $0.contains("locked>static") })
     }
 

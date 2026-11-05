@@ -182,7 +182,7 @@ import Foundation
     @Test func calibrationAppliedAfterFilter() {
         var p = HeadPosePipeline(calibration: Calibration(neutral: yawQ(20)))
         var out = p.process(nil, now: 0)
-        for i in 0...120 { out = p.process(sample(yawQ(50), Double(i) * dt), now: Double(i) * dt) }
+        for i in 0...120 { out = p.process(sample(yawQ(50), Double(i) * dt), now: Double(i) * dt) }   // locks after the 0.2 s recovery dwell
         #expect(out.state == .locked)
         #expect(angleDeg(out.pose, yawQ(30)) < 0.01)
     }
@@ -194,7 +194,8 @@ import Foundation
         for i in 0...60 { p.process(sample(yawQ(35), Double(i) * dt), now: Double(i) * dt) }
         let whileLocked = p.recenter()
         #expect(whileLocked)
-        p.process(nil, now: 2)                                 // lost -> holding
+        for k in 0..<10 { p.process(nil, now: 2 + Double(k) * dt) }   // no face for 0.17 s: past the 0.1 s loss dwell -> holding
+        #expect(p.machine.state == .holding)
         let whileHolding = p.recenter()
         #expect(!whileHolding)
     }
@@ -234,7 +235,13 @@ import Foundation
     @Test func lowConfidenceSamplesDoNotReachFilter() {
         var p = HeadPosePipeline()
         for i in 0...60 { p.process(sample(yawQ(10), Double(i) * dt), now: Double(i) * dt) }
-        let out = p.process(sample(yawQ(120), 61 * dt, conf: 0.1), now: 61 * dt)
+        // One bad sample: the pose coasts (frozen, state unchanged) and the bad 120° never reaches the filter.
+        let first = p.process(sample(yawQ(120), 61 * dt, conf: 0.1), now: 61 * dt)
+        #expect(first.state == .locked)
+        #expect(angleDeg(first.pose, yawQ(10)) < 0.01)
+        // Sustained bad samples (past the 0.1 s dwell) become a loss, still holding the pre-glitch pose.
+        var out = first
+        for k in 2...12 { out = p.process(sample(yawQ(120), Double(60 + k) * dt, conf: 0.1), now: Double(60 + k) * dt) }
         #expect(out.state == .holding)
         #expect(angleDeg(out.pose, yawQ(10)) < 0.01)
     }

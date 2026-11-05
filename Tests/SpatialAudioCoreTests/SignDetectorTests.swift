@@ -175,12 +175,15 @@ private func two(_ a: AngleTriple, _ b: AngleTriple? = nil, noise: Double = 1.5)
         #expect(SignDetector.analyze(axis: .yaw, evidence: [rep(delta: AngleTriple(yaw: 40))], config: cfg).outcome == .determined)
     }
 
-    @Test func wrongAxisDominatingIsInconclusive() {
+    @Test func wrongAxisDominatingIsNeverDeterminedAndIsOnlyLikelyWhenTheDirectionAgrees() {
         // The "left" prompts produced mostly a pitch change (e.g. a nod, or a rotated camera): do not call it yaw.
+        // Both repetitions had enough, steady yaw movement and agree on its direction, but the leakage check failed:
+        // that is LIKELY at best, and it must say so and must never be applied.
         let r = SignDetector.analyze(axis: .yaw, evidence: two(AngleTriple(yaw: 20, pitch: 30)))
-        #expect(r.outcome == .inconclusive)
-        #expect(r.reasons.contains { $0.contains("wrong axis") })
-        #expect(r.repetitions.allSatisfy { $0.leakageRatio > 1 })
+        #expect(r.outcome == .likely)
+        #expect(r.reasons.contains { $0.contains("wrong axis") } && r.reasons.contains { $0.contains("LIKELY, not DETERMINED") && $0.contains("NEVER applied") })
+        #expect(r.repetitions.allSatisfy { $0.leakageRatio > 1 && $0.leakageFailed && $0.enoughMovement && !$0.usable })
+        #expect(r.rawVisionSign == 1 && r.invertNeeded == false)                    // reported as a hint
     }
 
     @Test func moderateLeakageIsAccepted() {

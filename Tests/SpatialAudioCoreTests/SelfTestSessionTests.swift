@@ -86,7 +86,7 @@ import Testing
     }
 
     @Test func advanceCatchesUpOnSkippedPhasesAndFinishesOnce() {
-        var s = SelfTestSession(lighting: .dimRoom, startTime: 0)
+        var s = SelfTestSession(script: SelfTestScript.standard.withoutLockGates, lighting: .dimRoom, startTime: 0)
         let events = s.advance(to: 1000)
         let starts = events.compactMap { e -> Int? in if case .phaseStarted(let i) = e { i } else { nil } }
         #expect(starts == Array(0..<17))
@@ -104,7 +104,7 @@ import Testing
     }
 
     @Test func framesAreFiledUnderTheirArrivalPhase() {
-        var s = SelfTestSession(lighting: .normalLight, startTime: 10)
+        var s = SelfTestSession(script: SelfTestScript.standard.withoutLockGates, lighting: .normalLight, startTime: 10)
         for t in [10.0, 12.99, 13.0, 14.9, 15.0, 57.0, 60.0, 9.99] { s.record(frame(at: t)) }
         #expect(s.framesByPhase[0].map(\.arrival) == [10.0, 12.99])           // phase 0 = [10, 13)
         #expect(s.framesByPhase[1].map(\.arrival) == [13.0, 14.9])            // phase 1 = [13, 15)
@@ -121,7 +121,7 @@ import Testing
     }
 
     @Test func statusReportsRemainingTimeAndProgress() throws {
-        let s = SelfTestSession(lighting: .normalLight, startTime: 50)
+        let s = SelfTestSession(script: SelfTestScript.standard.withoutLockGates, lighting: .normalLight, startTime: 50)
         #expect(s.status(at: 49) == nil && s.status(at: 97) == nil)
         let st = try #require(s.status(at: 54))                                // 4 s in: phase 1 (baseline), 1 s elapsed
         #expect(st.phaseIndex == 1 && st.phase.kind == .baseline)

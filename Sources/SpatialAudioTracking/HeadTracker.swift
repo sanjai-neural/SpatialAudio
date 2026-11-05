@@ -32,12 +32,16 @@ public struct TrackingSnapshot: Equatable, Sendable {
     public var isWatchdogTick: Bool
     /// Seconds since the last real frame (0 for frame snapshots).
     public var frameAge: Double
+    /// The face bounding box in normalized image coordinates (numbers only); nil without a face.
+    public var faceBox: NormalizedRect? = nil
 }
 
 public struct HeadTrackerConfig: Sendable {
     public var filter = OneEuroParameters()
     public var machine = TrackingStateMachineConfig()
     public var quality = TrackingQualityConfig()
+    /// Hysteresis + dwell on the quality decision (UNTUNED placeholders).
+    public var gate = QualityGateConfig()
     /// UNTUNED. No frame for this long (monotonic clock) counts as face loss.
     public var frameTimeout = 0.25
     /// How often the watchdog checks (seconds).
@@ -79,7 +83,7 @@ public final class HeadTracker: @unchecked Sendable {
         self.mapping = mapping
         self.config = config
         self.clock = clock
-        self.pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine)
+        self.pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine, gate: config.gate)
         self.estimator = TrackingQualityEstimator(config: config.quality)
         watchdogQueue.setSpecific(key: watchdogKey, value: ())
     }
@@ -100,7 +104,7 @@ public final class HeadTracker: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard m != mapping else { return }
         mapping = m
-        pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine)
+        pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine, gate: config.gate)
     }
 
     /// Make the current head orientation neutral. False if not currently locked.
@@ -154,7 +158,7 @@ public final class HeadTracker: @unchecked Sendable {
             deliveryLatency: d.receivedAt - d.captureTime,
             visionDuration: d.detectedAt - d.receivedAt,
             captureToPoseLatency: provider.currentTime() - d.captureTime,
-            framesPerSecond: quality.framesPerSecond, isWatchdogTick: false, frameAge: 0)
+            framesPerSecond: quality.framesPerSecond, isWatchdogTick: false, frameAge: 0, faceBox: d.face?.boundingBox)
         handler?(snap)
         return snap
     }
@@ -173,7 +177,7 @@ public final class HeadTracker: @unchecked Sendable {
         estimator.noteGap()
         // Advance the pipeline timeline by the monotonic time elapsed since the last real frame, so
         // hold/decay timing does not depend on camera timestamps (which stop with the frames).
-        let out = pipeline.process(nil, now: lastCapture + age)
+        let out = pipeline.processFramesStopped(now: lastCapture + age)
         let handler = snapshotHandler
         lock.unlock()
 
@@ -190,7 +194,7 @@ public final class HeadTracker: @unchecked Sendable {
     /// Fresh filter/state each run; keeps the user's calibration.
     private func resetForStart() {
         lock.lock(); defer { lock.unlock() }
-        pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine, calibration: pipeline.calibration)
+        pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine, calibration: pipeline.calibration, gate: config.gate)
         estimator = TrackingQualityEstimator(config: config.quality)
         lastFrameMono = nil; lastCaptureTime = nil
     }

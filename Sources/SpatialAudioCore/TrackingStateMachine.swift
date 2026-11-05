@@ -100,6 +100,15 @@ public struct TrackingStateMachine: Sendable {
         return TrackingOutput(state: state, pose: out)
     }
 
+    /// Keep the current output and state unchanged and only advance the clock. Used while the quality gate is still
+    /// deciding whether a dip is a real loss (see `QualityGate`): the pose is frozen, not fed, and nothing flaps.
+    @discardableResult
+    public mutating func coast(at time: Double) -> TrackingOutput {
+        let t = max(time.isFinite ? time : (lastUpdateTime ?? 0), lastUpdateTime ?? -Double.infinity)
+        lastUpdateTime = t
+        return TrackingOutput(state: state, pose: lastOutput)
+    }
+
     // MARK: - Private
 
     private mutating func blended(target: Quaternion, at t: Double) -> Quaternion {

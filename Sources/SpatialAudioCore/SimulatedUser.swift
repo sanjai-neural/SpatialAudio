@@ -39,7 +39,7 @@ public struct SimulatedUser: Sendable {
     public init(script: SelfTestScript = .standard,
                 conventions: Conventions = Conventions(),
                 restRawOffsetsDegrees: AngleTriple = AngleTriple(yaw: 1.5, pitch: -11.7, roll: -3.5),
-                moveTargetsDegrees: AngleTriple = AngleTriple(yaw: 45, pitch: 25, roll: 25),
+                moveTargetsDegrees: AngleTriple = AngleTriple(yaw: 30, pitch: 20, roll: 20),    // the coached sizes (SelfTestMove.targetDegrees)
                 lossTurnYawDegrees: Double = 25, noiseSigmaDegrees: Double = 0.8, rampSeconds: Double = 0.7,
                 coverReactionSeconds: Double = 0.4, uncoverReactionSeconds: Double = 0.4,
                 framesMirrored: Bool = false, seed: UInt64 = 1) {

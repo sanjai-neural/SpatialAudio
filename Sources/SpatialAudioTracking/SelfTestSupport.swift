@@ -8,7 +8,9 @@ extension TrackingSnapshot {
         SelfTestFrame(arrival: arrival, captureTime: captureTime, angles: visionAngles, frameMirrored: frameMirrored,
                       videoRotationAngle: videoRotationAngle, state: state, pose: pose, qualityOverall: quality.overall,
                       isWatchdogTick: isWatchdogTick, deliveryLatency: deliveryLatency, visionDuration: visionDuration,
-                      totalLatency: captureToPoseLatency)
+                      totalLatency: captureToPoseLatency, limiting: quality.limiting,
+                      mappedDegrees: mappedRawEuler.map { AngleTriple(yaw: $0.yawDegrees, pitch: $0.pitchDegrees, roll: $0.rollDegrees) },
+                      faceBox: faceBox)
     }
 }
 

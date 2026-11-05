@@ -84,13 +84,25 @@ struct SelfTestRunPanel: View {
                 Text(st.phase.instruction)
                     .font(.title3).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("\(Int(st.secondsRemainingInPhase.rounded(.up)))")
-                    .font(.system(size: 96, weight: .bold, design: .rounded)).monospacedDigit()
-                ProgressBar(value: st.phaseProgress, tint: color)
+                if st.isWaitingForLock {
+                    VStack(spacing: 6) {
+                        Text("WAITING FOR STEADY TRACKING").font(.title.bold()).foregroundStyle(.orange)
+                        Text(String(format: "Keep your head turned and still. The camera test starts once tracking has been LOCKED for %.0f s in a row.", st.lockSecondsNeeded))
+                            .font(.callout).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                        ProgressBar(value: st.lockSecondsNeeded > 0 ? st.lockedSeconds / st.lockSecondsNeeded : 0, tint: .green)
+                        Text(String(format: "locked for %.1f of %.0f s   ·   waiting %.0f of at most %.0f s", st.lockedSeconds, st.lockSecondsNeeded, st.waitedSeconds, st.waitSecondsAllowed))
+                            .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("\(Int(st.secondsRemainingInPhase.rounded(.up)))")
+                        .font(.system(size: 96, weight: .bold, design: .rounded)).monospacedDigit()
+                    ProgressBar(value: st.phaseProgress, tint: color)
+                }
                 HStack(spacing: 8) {
                     Text("overall").font(.caption).foregroundStyle(.secondary)
                     ProgressBar(value: st.overallProgress, tint: .secondary)
                 }
+                if let fb = controller.coach { CoachBars(feedback: fb) }
             } else {
                 Text("Starting…").font(.title2)
                 if let m = controller.message { Text(m).font(.caption).foregroundStyle(.secondary) }
@@ -141,7 +153,7 @@ struct SelfTestRunPanel: View {
         return HStack(spacing: 12) {
             Text("tracking:").foregroundStyle(.secondary)
             Text(s.map { $0.state.rawValue.uppercased() } ?? "—").bold()
-            Text(s.map { String(format: "quality %.2f", $0.quality.overall) } ?? "")
+            Text(s.map { String(format: "quality %.2f (%@)", $0.quality.overall, $0.quality.limiting) } ?? "")
             Text(s.map { $0.facesDetected > 0 ? "face found" : "no face" } ?? "")
         }
         .font(.system(.caption, design: .monospaced))
@@ -157,11 +169,13 @@ struct SelfTestResultView: View {
     var body: some View {
         if let r = controller.report {
             VStack(alignment: .leading, spacing: 12) {
+                greenLightBanner(r)
                 header(r)
                 signsSection(r)
                 applySection(r)
                 lossSection(r)
                 statsSection(r)
+                qualitySection(r)
                 releaseSection(r)
                 actions(r)
             }
@@ -207,6 +221,9 @@ struct SelfTestResultView: View {
                 if x.outcome == .determined, let sign = x.rawVisionSign, let invert = x.invertNeeded {
                     Text("DETERMINED").bold().foregroundStyle(.green)
                     Text("raw Vision sign during the move: \(sign > 0 ? "+" : "−")  →  invert: \(invert ? "ON" : "off")")
+                } else if x.outcome == .likely, let sign = x.rawVisionSign {
+                    Text("LIKELY — not applied").bold().foregroundStyle(.yellow)
+                    Text("raw sign \(sign > 0 ? "+" : "−") in every repetition with enough movement, but other axes moved too")
                 } else {
                     Text("INCONCLUSIVE").bold().foregroundStyle(.orange)
                 }
@@ -217,7 +234,7 @@ struct SelfTestResultView: View {
                     : String(format: "rep %d: %+.1f°  (leak %.2f)%@", i + 1, rep.intendedDeltaDegrees, rep.leakageRatio, rep.usable ? "" : "  ✗")
             }.joined(separator: "     "))
             .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-            ForEach(x.reasons, id: \.self) { Text("• \($0)").font(.caption).foregroundStyle(.secondary) }
+            ForEach(x.reasons, id: \.self) { Text("• \($0)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
         }
     }
 
@@ -227,7 +244,7 @@ struct SelfTestResultView: View {
                 if r.isSimulated {
                     Text("Simulated run: signs can not be applied.").font(.callout)
                 } else if r.signs.determinedAxes.isEmpty {
-                    Text("No axis was determined, so there is nothing to apply. Nothing was guessed.").font(.callout)
+                    Text("No axis was DETERMINED, so there is nothing to apply. Nothing was guessed" + (r.signs.likelyAxes.isEmpty ? "." : "; LIKELY results are hints and are never applied.")).font(.callout)
                 } else if let detected = controller.detectedMapping {
                     Text("Detected invert flags: " + flags(detected) + "   (inconclusive axes keep their current setting)")
                         .font(.system(.callout, design: .monospaced))
@@ -261,6 +278,9 @@ struct SelfTestResultView: View {
                     Text(l.verdict.rawValue.uppercased()).bold().foregroundStyle(verdictColor(l.verdict))
                     Text(l.observedSequence.joined(separator: " → ")).font(.system(.callout, design: .monospaced))
                 }
+                if let why = l.invalidReason {
+                    Text("INVALID: " + why).font(.caption.bold()).foregroundStyle(.purple).fixedSize(horizontal: false, vertical: true)
+                }
                 Text(String(format: "time in state: holding %.2f s (configured %.2f), decaying %.2f s (configured %.2f), static %.2f s",
                             l.secondsInState.holding, l.expectedHoldSeconds, l.secondsInState.decaying, l.expectedDecaySeconds,
                             l.secondsInState.staticState)).font(.caption)
@@ -271,7 +291,26 @@ struct SelfTestResultView: View {
                     .font(.caption.bold()).foregroundStyle(l.jumpFlagged ? .red : .primary)
                 Text("held pose was \(l.heldPoseTravelDegrees.map { String(format: "%.1f°", $0) } ?? "n/a") from neutral" + (l.jumpCheckMeaningful ? "" : "  — jump check is WEAK"))
                     .font(.caption).foregroundStyle(l.jumpCheckMeaningful ? Color.secondary : Color.orange)
-                ForEach(l.notes, id: \.self) { Text("• \($0)").font(.caption).foregroundStyle(.secondary) }
+                ForEach(l.notes, id: \.self) { Text("• \($0)").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                if let ev = l.stepEvidence {
+                    Text("largest step — shape: \(ev.classification.kind.rawValue). \(ev.classification.explanation) (the full window of raw / mapped / output angles is in the saved JSON)")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(4)
+        }
+    }
+
+    private func qualitySection(_ r: SelfTestReport) -> some View {
+        SectionCard(title: "5. Tracking quality — which component limited it") {
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(r.qualityByPhase ?? [], id: \.name) { g in
+                    let top = g.limitingFractions.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(3)
+                        .map { String(format: "%@ %.0f%%", $0.key, $0.value * 100) }.joined(separator: ", ")
+                    Text(String(format: "%@: mean %.2f, min %.2f, below loss threshold %.0f%% — %@", g.name, g.meanQuality, g.minQuality, g.fractionBelowLossThreshold * 100, top))
+                        .font(.system(.caption, design: .monospaced)).fixedSize(horizontal: false, vertical: true)
+                }
+                Text("Component names: size, edge, center jump, scale jump, angular speed, frame rate, vision confidence; \"none\" = all fine, \"no face\" = nothing detected.")
+                    .font(.caption2).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity, alignment: .leading).padding(4)
         }
     }
@@ -308,7 +347,7 @@ struct SelfTestResultView: View {
     }
 
     private func releaseSection(_ r: SelfTestReport) -> some View {
-        SectionCard(title: "5. Camera release") {
+        SectionCard(title: "6. Camera release") {
             VStack(alignment: .leading, spacing: 6) {
                 if r.isSimulated {
                     Text("Simulated run: there is no camera hardware to release.").font(.caption)
@@ -331,14 +370,38 @@ struct SelfTestResultView: View {
     @ViewBuilder
     private func greenLightQuestion(_ r: SelfTestReport) -> some View {
         switch r.greenLight {
-        case .notAsked:
-            HStack {
-                Text("Look at the camera light now. Is it OFF?").font(.callout.bold())
-                Button("Yes, it is off") { controller.answerGreenLight(isOff: true) }
-                Button("No, still on") { controller.answerGreenLight(isOff: false) }
-            }
+        case .notAsked: Text("Green light: not asked.").font(.callout).foregroundStyle(.secondary)
+        case .notAnswered: Text("Green light: NOT ANSWERED yet — see the question at the top.").font(.callout.bold()).foregroundStyle(.orange)
         case .off: Text("You reported: green light OFF ✓").font(.callout).foregroundStyle(.green)
         case .stillOn: Text("You reported: green light STILL ON ✗ — tell Claude").font(.callout.bold()).foregroundStyle(.red)
+        }
+    }
+
+    /// The question comes first, as soon as the results appear: the app has already stopped the camera by itself at this point, so
+    /// the light should be going off right now. (In the two real reports of 2026-11-05 this sat at the bottom of the screen and
+    /// went unanswered.)
+    @ViewBuilder
+    private func greenLightBanner(_ r: SelfTestReport) -> some View {
+        if !r.isSimulated {
+            switch r.greenLight {
+            case .notAsked, .notAnswered:
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("LOOK AT THE CAMERA LIGHT NOW").font(.title3.bold())
+                    Text("The app stopped the camera when the test ended. Is the green light next to the camera OFF (it may take about a second)?")
+                        .font(.callout).fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button("Yes, the light is OFF") { controller.answerGreenLight(isOff: true) }.buttonStyle(.borderedProminent)
+                        Button("No, it is still ON") { controller.answerGreenLight(isOff: false) }
+                        Text("Unanswered is recorded as \"not answered\".").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.yellow.opacity(0.28), in: RoundedRectangle(cornerRadius: 10))
+            case .off:
+                Text("Green light: you reported OFF ✓").font(.callout.bold()).foregroundStyle(.green)
+            case .stillOn:
+                Text("Green light: you reported STILL ON ✗ — tell Claude").font(.callout.bold()).foregroundStyle(.red)
+            }
         }
     }
 
@@ -357,6 +420,64 @@ struct SelfTestResultView: View {
     }
 
     private func verdictColor(_ v: LossVerdict) -> Color {
-        switch v { case .pass: .green; case .fail: .red; case .incomplete: .orange }
+        switch v { case .pass: .green; case .fail: .red; case .incomplete: .orange; case .invalid: .purple }
+    }
+}
+
+
+// MARK: - Live coaching bars
+
+/// Per-axis deviation from the starting pose with the target band, plus one line of feedback. Plain SwiftUI shapes (no AppKit-backed
+/// controls) so the layout can also be reviewed with the in-process renderer.
+struct CoachBars: View {
+    var feedback: CoachFeedback
+
+    private let scaleDegrees = 60.0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let dev = feedback.deviationDegrees {
+                ForEach(RotationAxis.allCases, id: \.self) { axis in row(axis, dev[axis]) }
+            }
+            Text(feedback.message)
+                .font(.title3.bold()).foregroundStyle(color(for: feedback.verdict))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: 560, alignment: .leading)
+        .background(Color.black.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func row(_ axis: RotationAxis, _ value: Double) -> some View {
+        let instructed = feedback.instructedAxis == axis
+        let flagged = feedback.verdict == .otherAxisMoving && feedback.worstOtherAxis == axis
+        return HStack(spacing: 8) {
+            Text(axis.rawValue.uppercased()).font(.system(.caption, design: .monospaced).bold()).frame(width: 44, alignment: .leading)
+            GeometryReader { geo in
+                let w = geo.size.width
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.15))
+                    if instructed, let t = feedback.targetDegrees {
+                        let lo = CoachConfig().goodFromFraction * t / scaleDegrees, hi = min(1, CoachConfig().tooFarFraction * t / scaleDegrees)
+                        Rectangle().fill(Color.green.opacity(0.30)).frame(width: w * (hi - lo)).offset(x: w * lo)
+                        Rectangle().fill(Color.green).frame(width: 2).offset(x: w * min(1, t / scaleDegrees))
+                    }
+                    Capsule().fill(instructed ? color(for: feedback.verdict) : (flagged ? Color.orange : Color.gray))
+                        .frame(width: w * min(max(value / scaleDegrees, 0), 1))
+                }
+            }
+            .frame(height: 12)
+            Text(String(format: "%3.0f°", value)).font(.system(.caption, design: .monospaced)).frame(width: 40, alignment: .trailing)
+        }
+    }
+
+    private func color(for v: CoachVerdict) -> Color {
+        switch v {
+        case .good, .steady: .green
+        case .tooSmall, .notCentered: .yellow
+        case .tooFar: .red
+        case .otherAxisMoving, .stillMoving: .orange
+        case .noFace: .gray
+        }
     }
 }

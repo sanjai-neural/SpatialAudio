@@ -49,10 +49,17 @@ func simulateSession(user: SimulatedUser = SimulatedUser(), mapping: HeadAngleMa
                            confidence: quality.overall, timestamp: capture)
         }
         let out = pipeline.process(sample, now: capture)
+        _ = session.advance(to: arrival)                       // like the controller: opens the loss test's lock gate
         session.record(SelfTestFrame(
             arrival: arrival, captureTime: capture, angles: raw, frameMirrored: user.framesMirrored,
             videoRotationAngle: 0, state: out.state, pose: out.pose, qualityOverall: quality.overall,
-            deliveryLatency: delivery, visionDuration: vision, totalLatency: latency))
+            deliveryLatency: delivery, visionDuration: vision, totalLatency: latency,
+            limiting: quality.limiting,
+            mappedDegrees: face.map { f in
+                let e = mapping.euler(from: f.angles, frameMirrored: user.framesMirrored)
+                return AngleTriple(yaw: e.yawDegrees, pitch: e.pitchDegrees, roll: e.rollDegrees)
+            },
+            faceBox: face?.boundingBox))
     }
     return session
 }

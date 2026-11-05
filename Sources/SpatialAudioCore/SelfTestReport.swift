@@ -35,9 +35,25 @@ public struct CameraReleaseReport: Codable, Equatable, Sendable {
 
 /// The user's answer to "is the green camera light off?" (a visual check no code can make).
 public enum GreenLightAnswer: String, Codable, Sendable {
+    /// The question does not apply (simulated input has no camera) or was never put to the user.
     case notAsked = "not asked"
+    /// The question was shown but nobody answered it. The two real reports of 2026-11-05 said "not asked" because the
+    /// question sat at the bottom of the results and the default was never replaced.
+    case notAnswered = "not answered"
+    /// "Yes, the light is off."
     case off = "user reports OFF"
+    /// "No, the light is still on."
     case stillOn = "user reports STILL ON"
+
+    /// Wording for the report and the screen.
+    public var plainEnglish: String {
+        switch self {
+        case .notAsked: "not asked (no camera light applies)"
+        case .notAnswered: "NOT ANSWERED (the question was shown but no answer was given)"
+        case .off: "yes — the light went OFF"
+        case .stillOn: "NO — the light is STILL ON"
+        }
+    }
 }
 
 public struct EnvironmentInfo: Codable, Equatable, Sendable {
@@ -104,10 +120,12 @@ public struct SignDetectionReport: Codable, Equatable, Sendable {
     }
 
     public var determinedAxes: [RotationAxis] { RotationAxis.allCases.filter { self[$0].outcome == .determined } }
+    /// Axes with a LIKELY (not DETERMINED) result. Informational only: never part of `recommendedMapping`.
+    public var likelyAxes: [RotationAxis] { RotationAxis.allCases.filter { self[$0].outcome == .likely } }
     public var allDetermined: Bool { determinedAxes.count == 3 }
 
-    /// `base` with the invert flag of every DETERMINED axis set to what the test found. Inconclusive axes
-    /// keep `base` untouched (the detector never guesses).
+    /// `base` with the invert flag of every DETERMINED axis set to what the test found. Inconclusive AND LIKELY axes
+    /// keep `base` untouched (the detector never guesses, and a LIKELY result is never applied).
     public func recommendedMapping(over base: HeadAngleMapping) -> HeadAngleMapping {
         var m = base
         if yaw.outcome == .determined { m.invertYaw = yaw.invertNeeded ?? m.invertYaw }
@@ -122,6 +140,8 @@ public struct SelfTestConfigUsed: Codable, Equatable, Sendable {
     public var loss: LossAnalysisConfig
     public var machine: TrackingStateMachineConfig
     public var minimumStatsFrames: Int
+    /// Quality-gate hysteresis and dwell in effect during the run (nil in reports written before Step 2d).
+    public var gate: QualityGateConfig? = nil
 }
 
 public struct SelfTestAnalysisConfig: Equatable, Sendable {
@@ -143,13 +163,16 @@ public struct SelfTestContext: Sendable {
     public var visionRevision: Int
     public var mappingDuringTest: HeadAngleMapping
     public var machine: TrackingStateMachineConfig
+    public var gate: QualityGateConfig
 
     public init(createdAt: String, inputSource: String, macOSVersion: String, hardwareModel: String,
                 cameraName: String?, capturePreset: String, visionRevision: Int,
-                mappingDuringTest: HeadAngleMapping, machine: TrackingStateMachineConfig) {
+                mappingDuringTest: HeadAngleMapping, machine: TrackingStateMachineConfig,
+                gate: QualityGateConfig = QualityGateConfig()) {
         self.createdAt = createdAt; self.inputSource = inputSource; self.macOSVersion = macOSVersion
         self.hardwareModel = hardwareModel; self.cameraName = cameraName; self.capturePreset = capturePreset
         self.visionRevision = visionRevision; self.mappingDuringTest = mappingDuringTest; self.machine = machine
+        self.gate = gate
     }
 }
 
@@ -157,7 +180,7 @@ public struct SelfTestContext: Sendable {
 
 /// Numbers and short strings only. No images or video frames exist in, or are reachable from, this type.
 public struct SelfTestReport: Codable, Equatable, Sendable {
-    public var schemaVersion = 1
+    public var schemaVersion = 2
     public var createdAt: String
     public var inputSource: String
     public var lighting: LightingTag
@@ -166,6 +189,8 @@ public struct SelfTestReport: Codable, Equatable, Sendable {
     public var signs: SignDetectionReport
     public var loss: LossReport
     public var stats: StatsReport
+    /// Which tracking-quality component was limiting, and for what fraction of frames, per group of phases (Step 2d).
+    public var qualityByPhase: [QualityWindowSummary]? = nil
     public var cameraRelease: CameraReleaseReport?
     public var greenLight: GreenLightAnswer
     /// Set only if the user confirmed "apply".
@@ -207,10 +232,14 @@ public enum SelfTestAnalyzer {
         if let turn = script.firstIndex(of: .lossTurn), let cover = script.firstIndex(of: .cover),
            let uncover = script.firstIndex(of: .uncover) {
             let frames = (turn...uncover).flatMap { session.framesByPhase[$0] }
+            let gateReason: String? = session.lossGateFailed
+                ? String(format: "tracking was not LOCKED for %.1f s in a row within %.0f s after the turn phase, so the cover cue was never given and the loss test was skipped",
+                         script.phases[cover].lockGate?.minimumLockedSeconds ?? 0, script.phases[cover].lockGate?.maximumWaitSeconds ?? 0)
+                : nil
             loss = LossAnalyzer.analyze(frames: frames, coverStart: session.absoluteStart(of: cover),
                                         uncoverStart: session.absoluteStart(of: uncover),
                                         end: session.absoluteEnd(of: uncover), machine: context.machine,
-                                        config: config.loss)
+                                        config: config.loss, invalidReason: gateReason)
         } else {
             loss = LossAnalyzer.analyze(frames: [], coverStart: 0, uncoverStart: 0, end: 0,
                                         machine: context.machine, config: config.loss)
@@ -219,6 +248,24 @@ public enum SelfTestAnalyzer {
         let statFrames = script.phases.indices.filter { script.phases[$0].inStatsWindow }.flatMap { session.framesByPhase[$0] }
         let stats = StatsAnalyzer.analyze(frames: statFrames, windowSeconds: script.statsWindowSeconds,
                                           minimumFrames: config.minimumStatsFrames)
+
+        // Which quality component limited tracking, per group of phases.
+        func quality(_ name: String, _ match: (SelfTestPhase) -> Bool) -> QualityWindowSummary? {
+            let idx = script.phases.indices.filter { match(script.phases[$0]) }
+            return QualityAnalyzer.summarize(name: name, frames: idx.flatMap { session.framesByPhase[$0] }, gate: context.gate)
+        }
+        var qualityGroups: [QualityWindowSummary?] = [
+            quality("statistics window (hold + rest)") { $0.inStatsWindow },
+            quality("baseline") { $0.kind == .baseline },
+        ]
+        for move in SelfTestMove.allCases { qualityGroups.append(quality("hold: \(move.label)") { $0.kind == .hold && $0.move == move }) }
+        qualityGroups += [
+            quality("rest") { $0.kind == .rest },
+            quality("loss test: turn (incl. waiting for lock)") { $0.kind == .lossTurn },
+            quality("loss test: cover") { $0.kind == .cover },
+            quality("loss test: uncover") { $0.kind == .uncover },
+            quality("whole run") { _ in true },
+        ]
 
         let allFrames = session.framesByPhase.flatMap { $0 }.filter { !$0.isWatchdogTick && $0.angles != nil }
         let env = EnvironmentInfo(
@@ -230,9 +277,11 @@ public enum SelfTestAnalyzer {
         return SelfTestReport(
             createdAt: context.createdAt, inputSource: context.inputSource, lighting: session.lighting,
             environment: env, mappingDuringTest: context.mappingDuringTest, signs: signs, loss: loss, stats: stats,
-            cameraRelease: nil, greenLight: .notAsked, appliedMapping: nil,
+            qualityByPhase: qualityGroups.compactMap { $0 },
+            // The question is put to the user as soon as the results appear (Step 2d), so a real run starts as "not answered".
+            cameraRelease: nil, greenLight: context.inputSource == "simulated" ? .notAsked : .notAnswered, appliedMapping: nil,
             config: SelfTestConfigUsed(signs: config.signs, loss: config.loss, machine: context.machine,
-                                       minimumStatsFrames: config.minimumStatsFrames),
+                                       minimumStatsFrames: config.minimumStatsFrames, gate: context.gate),
             assumptions: SelfTestReport.standardAssumptions)
     }
 }
@@ -302,10 +351,43 @@ extension SelfTestReport {
                 x.referenceSamples == 0 && x.holdSamples == 0 ? "rep\(i + 1): no data"
                     : "rep\(i + 1): \(sd(x.intendedDeltaDegrees)) (\(String(format: "%.2f", x.leakageRatio)))\(x.usable ? "" : " ✗")"
             }.joined(separator: "; ")
-            L.append("| \(axis.rawValue) | \(r.outcome == .determined ? "DETERMINED" : "INCONCLUSIVE") | \(r.rawVisionSign.map { $0 > 0 ? "+" : "−" } ?? "—") | \(r.invertNeeded.map { $0 ? "YES" : "no" } ?? "—") | \(reps) | \(r.reasons.isEmpty ? "—" : r.reasons.joined(separator: " / ")) |")
+            let outcome: String
+            switch r.outcome {
+            case .determined: outcome = "DETERMINED"
+            case .likely: outcome = "LIKELY (not applied)"
+            case .inconclusive: outcome = "INCONCLUSIVE"
+            }
+            let shownSign = r.outcome == .inconclusive ? "—" : (r.rawVisionSign.map { $0 > 0 ? "+" : "−" } ?? "—")
+            let shownInvert = r.outcome == .inconclusive ? "—" : (r.invertNeeded.map { $0 ? "YES" : "no" } ?? "—")
+            L.append("| \(axis.rawValue) | \(outcome) | \(shownSign) | \(shownInvert) | \(reps) | \(r.reasons.isEmpty ? "—" : r.reasons.joined(separator: " / ")) |")
         }
         L.append("")
-        L.append("\\* relative to the documented default mapping (all invert flags off, including its mirror compensation).")
+        L.append("\\* relative to the documented default mapping (all invert flags off, including its mirror compensation). LIKELY results are hints only and are never applied automatically.")
+
+        // Baseline statistics: what the "noise" figures are made of.
+        let hasStats = RotationAxis.allCases.contains { axis in signs[axis].repetitions.contains { $0.referenceStats != nil } }
+        if hasStats {
+            L.append("")
+            L.append("### Baseline statistics of the instructed axis (raw Vision degrees)")
+            L.append("σ is 1.4826 × the median absolute deviation (robust; this is the \"noise\" the 5× rule uses). Range (max − min) is shown only to contrast it. Drift is how far the medians of overlapping 10-sample sub-windows wander.")
+            L.append("")
+            L.append("| Axis | Rep | Window | n | median | σ (MAD) | range | p10–p90 | drift | required move |")
+            L.append("|---|---|---|---|---|---|---|---|---|---|")
+            for axis in RotationAxis.allCases {
+                for (i, rep) in signs[axis].repetitions.enumerated() {
+                    func stat(_ a: AxisBaselines?) -> BaselineStats? {
+                        guard let a else { return nil }
+                        switch axis { case .yaw: return a.yaw; case .pitch: return a.pitch; case .roll: return a.roll }
+                    }
+                    for (label, st) in [("reference", stat(rep.referenceStats)), ("hold", stat(rep.holdStats))] {
+                        guard let st else { continue }
+                        L.append(String(format: "| %@ | %d | %@ | %d | %+.1f | %.2f | %.1f | %.1f | %.1f | %@ |", axis.rawValue, i + 1, label, st.samples,
+                                        st.medianDegrees, st.sigmaDegrees, st.rangeDegrees, st.p10ToP90Degrees, st.driftDegrees,
+                                        label == "reference" ? String(format: "%.1f°", rep.requiredMovementDegrees) : "—"))
+                    }
+                }
+            }
+        }
         if let applied = appliedMapping {
             L.append("")
             L.append("**Applied by the user:** invert yaw=\(applied.invertYaw ? "ON" : "off") pitch=\(applied.invertPitch ? "ON" : "off") roll=\(applied.invertRoll ? "ON" : "off")")
@@ -313,6 +395,7 @@ extension SelfTestReport {
         L.append("")
         L.append("## 2. Loss test (turn ~25° left, cover camera, uncover)")
         L.append("- **Verdict:** \(loss.verdict.rawValue.uppercased())")
+        if let why = loss.invalidReason { L.append("- **INVALID because:** \(why)") }
         L.append("- **Observed state sequence:** \(loss.observedSequence.joined(separator: " → ")) (expected \(loss.expectedSequence.joined(separator: " → ")))")
         L.append(String(format: "- **Time in state:** locked-before-loss %.2f s, holding %.2f s (configured %.2f), decaying %.2f s (configured %.2f), static %.2f s",
                         loss.secondsInState.lockedBeforeLoss, loss.secondsInState.holding, loss.expectedHoldSeconds,
@@ -323,6 +406,26 @@ extension SelfTestReport {
                         loss.maxJumpState.map { " (in state \($0), \(String(format: "%.2f", loss.maxJumpSecondsAfterCoverCue ?? 0)) s after the cover cue)" } ?? ""))
         L.append("- **Held pose distance from neutral:** \(loss.heldPoseTravelDegrees.map { String(format: "%.1f°", $0) } ?? "n/a")\(loss.jumpCheckMeaningful ? "" : " — jump check is WEAK")")
         for n in loss.notes { L.append("- note: \(n)") }
+        if let ev = loss.stepEvidence {
+            let c = ev.classification
+            L.append("")
+            L.append(String(format: "### Evidence around the largest pose step (%.2f° output step, state %@, %.2f s after the cover cue)", ev.stepDegrees, ev.stateAtStep, ev.secondsAfterCoverCue))
+            L.append("- **Shape: \(c.kind.rawValue)**\(c.nearStateChange ? " (near a state change)" : ""). \(c.explanation)")
+            if let r = c.rawStepDegrees { L.append(String(format: "- raw Vision step %.1f° (%.0f°/s)%@%@", r, c.rawStepDegreesPerSecond ?? 0,
+                                                       c.framesUntilRawReturned.map { ", raw back near its old value after \($0) frame(s)" } ?? "",
+                                                       c.displacementOverTenFramesDegrees.map { String(format: ", raw displacement over 10 frames %.1f°", $0) } ?? "")) }
+            L.append("- shape thresholds are untuned: \"back\" = within \(Int(StepEvidenceAnalyzer.returnedFraction * 100))% of the step, \(StepEvidenceAnalyzer.maxReturnFrames) frames; multi-frame = step < \(Int(StepEvidenceAnalyzer.multiFrameFraction * 100))% of the 10-frame displacement")
+            L.append("- the full ±\(StepEvidenceAnalyzer.radius)-frame window (raw, mapped, output, state, quality, limiting component, face box) is in the JSON file; ±8 frames are shown here:")
+            L.append("")
+            L.append("| t (ms) | raw yaw/pitch/roll | mapped yaw/pitch/roll | output yaw/pitch/roll | state | quality | limiting | box h |")
+            L.append("|---|---|---|---|---|---|---|---|")
+            func tri(_ a: AngleTriple?) -> String { a.map { String(format: "%+.1f / %+.1f / %+.1f", $0.yaw, $0.pitch, $0.roll) } ?? "no face" }
+            let center = ev.frames.firstIndex { abs($0.secondsFromStep) < 1e-9 } ?? ev.frames.count / 2
+            for f in ev.frames[max(0, center - 8)...min(ev.frames.count - 1, center + 8)] {
+                L.append(String(format: "| %+.0f | %@ | %@ | %@ | %@ | %.2f | %@ | %@ |", f.secondsFromStep * 1000, tri(f.rawVisionDegrees), tri(f.mappedDegrees),
+                                tri(f.outputPoseDegrees), f.state, f.quality, f.limiting, f.faceBoxHeight.map { String(format: "%.2f", $0) } ?? "—"))
+            }
+        }
         L.append("")
         L.append("## 3. Statistics (\(String(format: "%.0f", stats.windowSeconds)) s window, \(lighting.rawValue))")
         L.append("- **Frames:** \(stats.frameCount); **face found in:** \(String(format: "%.0f%%", stats.facePresentFraction * 100)); **mean quality:** \(String(format: "%.2f", stats.meanQuality))")
@@ -336,7 +439,23 @@ extension SelfTestReport {
         L.append("| Total (sample timestamp → pose ready) | \(ms(stats.totalMs)) |")
         for n in stats.notes { L.append("- note: \(n)") }
         L.append("")
-        L.append("## 4. Camera release")
+        if let groups = qualityByPhase, !groups.isEmpty {
+            L.append("## 4. Tracking quality: which component limited it")
+            L.append("Per group of phases: share of frames in which each component was the weakest (\"none\" = all components 1). \"Low\" = quality below the recovery threshold. Gate: lose below \(String(format: "%.2f", config.gate?.lossBelow ?? config.machine.minConfidence)) for \(String(format: "%.2f", config.gate?.lossDwell ?? 0)) s, recover at or above \(String(format: "%.2f", config.gate?.recoverAbove ?? config.machine.minConfidence)) for \(String(format: "%.2f", config.gate?.recoverDwell ?? 0)) s.")
+            L.append("")
+            L.append("| Group | frames | mean | min | < loss | < recover | limiting component (share of frames) | limiting when low |")
+            L.append("|---|---|---|---|---|---|---|---|")
+            func top(_ d: [String: Double]) -> String {
+                let items = d.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(4)
+                return items.isEmpty ? "—" : items.map { String(format: "%@ %.0f%%", $0.key, $0.value * 100) }.joined(separator: ", ")
+            }
+            for g in groups {
+                L.append(String(format: "| %@ | %d | %.2f | %.2f | %.0f%% | %.0f%% | %@ | %@ |", g.name, g.frames, g.meanQuality, g.minQuality,
+                                g.fractionBelowLossThreshold * 100, g.fractionBelowRecoverThreshold * 100, top(g.limitingFractions), top(g.limitingFractionsWhenLow)))
+            }
+            L.append("")
+        }
+        L.append("## 5. Camera release")
         if let r = cameraRelease {
             L.append("- **Programmatic:** \(r.isClean ? "CLEAN" : "NOT CLEAN") — isRunning after stop=\(r.isRunningAfterStop), inputs=\(r.inputsAfterStop), outputs=\(r.outputsAfterStop), callbacks after stop=\(r.callbacksAfterStop), (informational: stop notifications seen=\(r.stopNotificationsObserved), session object deallocated=\(r.sessionObjectDeallocated); both depend on the run loop and timing) — checked \(f1(r.secondsSinceStop)) s after stop")
         } else if isSimulated {
@@ -344,14 +463,19 @@ extension SelfTestReport {
         } else {
             L.append("- **Programmatic:** not available (the camera was not stopped and read back)")
         }
-        L.append("- **Green light (visual, user-reported):** \(greenLight.rawValue)")
+        L.append("- **Green light (visual, user-reported):** \(greenLight.plainEnglish)")
         L.append("")
         L.append("## Thresholds used (all untuned)")
         let s = config.signs
         L.append("- Sign detection: min movement yaw \(f1(s.minMovementDegrees.yaw))° / pitch \(f1(s.minMovementDegrees.pitch))° / roll \(f1(s.minMovementDegrees.roll))° and ≥ \(f1(s.noiseMultiple))× reference noise; hold spread ≤ \(String(format: "%.0f%%", s.maxHoldSpreadRatio * 100)) of the movement; other-axis leakage ≤ \(String(format: "%.2f", s.maxLeakageRatio)); ≥ \(s.requiredValidRepetitions) usable agreeing repetitions; ≥ \(s.minReferenceSamples)/\(s.minHoldSamples) reference/hold samples; face in ≥ \(String(format: "%.0f%%", s.minFacePresentFraction * 100)) of hold frames")
         let lo = config.loss
         L.append("- Loss test: jump threshold = max(\(f1(lo.jumpThresholdFloorDegrees))°, \(String(format: "%.2f", lo.jumpSafetyFactor))× the largest step the eased blend could produce); meaningful if held pose ≥ \(f1(lo.minMeaningfulTravelDegrees))° from neutral")
-        L.append(String(format: "- State machine: min confidence %.2f, hold %.2f s, decay %.2f s, reacquire blend %.2f s", config.machine.minConfidence, config.machine.holdDuration, config.machine.decayDuration, config.machine.reacquireBlendDuration))
+        L.append(String(format: "- State machine: hold %.2f s, decay %.2f s, reacquire blend %.2f s", config.machine.holdDuration, config.machine.decayDuration, config.machine.reacquireBlendDuration))
+        if let g = config.gate {
+            L.append(String(format: "- Quality gate: loss below %.2f for %.2f s, recovery at or above %.2f for %.2f s (hysteresis and dwell; replaced the single 0.50 threshold)", g.lossBelow, g.lossDwell, g.recoverAbove, g.recoverDwell))
+        }
+        L.append("- Loss test: the cover cue waits until tracking has been LOCKED for 1.0 s (at most 10 s), otherwise the run is INVALID")
+        L.append("- Coaching targets: turn \(Int(SelfTestMove.turnLeft.targetDegrees))° / look up \(Int(SelfTestMove.lookUp.targetDegrees))° / tilt \(Int(SelfTestMove.tiltRightEar.targetDegrees))°, keep the other axes still")
         L.append("")
         L.append("## Assumptions and limits")
         for a in assumptions { L.append("- \(a)") }
