@@ -5,6 +5,11 @@ import SwiftUI
 struct SpatialAudioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        // Command-line probes (Step 6a: --tap-probe, --list-audio-devices) run here and exit before any window exists.
+        if let status = TapProbeLaunch.runIfRequested(LaunchOptions.current) { exit(status) }
+    }
+
     var body: some Scene {
         Window("SpatialAudio — Head Tracking HUD", id: "hud") {
             HUDView(model: HeadTrackingModel.shared)

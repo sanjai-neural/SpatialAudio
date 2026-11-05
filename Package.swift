@@ -17,6 +17,11 @@ let package = Package(
         // Swift's Synchronization.Atomic requires macOS 15 and our minimum is 14.0.
         .target(name: "CPoseMailbox"),
 
+        // Step 6a: the real-time half of the system-audio capture probe (one AudioDeviceIOProc, C11 atomics, no calls).
+        // -Werror=function-effects makes clang reject any call from the CA_REALTIME_API ([[clang::nonblocking]]) callback to a
+        // function it cannot prove non-blocking (a compile-time check next to scripts/scan-rt-callback.sh).
+        .target(name: "CTapProbe", cSettings: [.unsafeFlags(["-Werror=function-effects"])]),
+
         // Pure logic: no hardware, no AVFoundation/Vision/CoreAudio. Unit-tested.
         .target(name: "SpatialAudioCore", dependencies: ["CPoseMailbox"]),
 
@@ -24,7 +29,7 @@ let package = Package(
         .target(name: "SpatialAudioTracking", dependencies: ["SpatialAudioCore"]),
 
         // Spatial renderer (AVAudioEnvironmentNode + HRTF), test tone, pose pump, scripted listening tests.
-        .target(name: "SpatialAudioEngine", dependencies: ["SpatialAudioCore"]),
+        .target(name: "SpatialAudioEngine", dependencies: ["SpatialAudioCore", "CTapProbe"]),
 
         // SwiftUI shell + debug HUD. No DSP or CV logic here.
         .executableTarget(
@@ -34,7 +39,7 @@ let package = Package(
 
         .testTarget(name: "SpatialAudioCoreTests", dependencies: ["SpatialAudioCore"]),
         .testTarget(name: "SpatialAudioTrackingTests", dependencies: ["SpatialAudioTracking", "SpatialAudioCore"]),
-        .testTarget(name: "SpatialAudioEngineTests", dependencies: ["SpatialAudioEngine", "SpatialAudioCore"]),
+        .testTarget(name: "SpatialAudioEngineTests", dependencies: ["SpatialAudioEngine", "SpatialAudioCore", "CTapProbe"]),
     ],
     cLanguageStandard: .c11
 )

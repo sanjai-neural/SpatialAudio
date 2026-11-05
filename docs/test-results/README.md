@@ -23,3 +23,7 @@ The report records the visual camera-light question as "yes — the light went O
 
 ## How to read a report
 See "How to read the result" in `docs/MANUAL_TEST_STEP2.md`. In short: DETERMINED means both repetitions agreed and the data was strong; INCONCLUSIVE means it was weak or inconsistent and nothing was guessed; all thresholds are untuned proposals printed at the bottom of every report.
+
+## System-audio tap probe reports (Step 6a)
+`--tap-probe <seconds>` (docs/MANUAL_TEST_STEP6A.md) writes `tapprobe-YYYYMMDD-HHMMSS.json` and `.md` here; the simulated source (`--tap-probe-simulate`) writes `tapprobe-...-SIMULATED.*`, which `.gitignore` excludes (same rule as the self-test: never committed, never a hardware result). A report holds numbers and short strings only: the format of the tap (sample rate, channels, sample format), callback counts and timing (frames per callback, callback interval, implied frame rate), per-second peak and RMS **levels**, the OSStatus of every Core Audio call, the device and tap lists before / while running / after teardown, and the machine identifier and macOS version. **No audio samples are stored**, not even a snippet; the per-second levels are a coarse loudness envelope of whatever was playing. Real reports follow the same commit rule as the self-test reports: on their own, by explicit path, when Sanjai says so.
+

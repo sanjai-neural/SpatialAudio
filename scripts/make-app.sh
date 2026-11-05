@@ -7,6 +7,8 @@
 #
 # Usage: scripts/make-app.sh [debug|release]      (default: debug)
 #        CODESIGN_IDENTITY="Apple Development: ..." scripts/make-app.sh   (default: ad-hoc "-")
+#        SA_OMIT_AUDIO_KEY=1 scripts/make-app.sh   builds WITHOUT NSAudioCaptureUsageDescription, to see what a tap does
+#                                                  without the key (Step 6a, docs/MANUAL_TEST_STEP6A.md)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,6 +34,14 @@ if [[ "$CONFIG" == "debug" ]]; then
   REPO_ROOT_KEY="    <key>SADevRepoRoot</key><string>${REPO_ESC}</string>"
 fi
 
+# Step 6a: the key Apple's "Capturing system audio with Core Audio taps" page names for taps. UNVERIFIED on this Mac until the probe
+# has been run: whether the prompt appears without it, and what it says, are things the manual run records.
+AUDIO_KEY=""
+if [[ "${SA_OMIT_AUDIO_KEY:-0}" != "1" ]]; then
+  AUDIO_KEY="    <key>NSAudioCaptureUsageDescription</key>
+    <string>SpatialAudio can capture your Mac's system audio to give it head-tracked spatial sound. In this probe the audio is only measured (levels and timing), never stored, played back or sent anywhere.</string>"
+fi
+
 cat > "$OUT/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -48,6 +58,7 @@ cat > "$OUT/Contents/Info.plist" <<PLIST
     <key>NSPrincipalClass</key><string>NSApplication</string>
     <key>NSHighResolutionCapable</key><true/>
 ${REPO_ROOT_KEY}
+${AUDIO_KEY}
     <key>NSCameraUsageDescription</key>
     <string>SpatialAudio uses the camera to estimate your head orientation for spatial audio. Video frames are processed in memory only; they are never saved or sent anywhere.</string>
 </dict>

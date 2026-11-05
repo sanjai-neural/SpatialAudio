@@ -29,6 +29,19 @@ enum ReportStore {
     }
 }
 
+extension ReportStore {
+    /// Writes `<stem>.json` and `<stem>.md` for a system-audio tap probe (Step 6a). Numbers only.
+    @discardableResult
+    static func writeTapProbe(_ report: TapProbeReport, stem: String, to directory: URL) throws -> [URL] {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let json = directory.appendingPathComponent(stem + ".json")
+        let markdown = directory.appendingPathComponent(stem + ".md")
+        try report.jsonData().write(to: json, options: .atomic)
+        try Data(report.markdown().utf8).write(to: markdown, options: .atomic)
+        return [json, markdown]
+    }
+}
+
 /// Sign mapping the user confirmed after a self-test. Just three booleans and a label; no camera data.
 struct SavedMapping: Codable, Equatable {
     var mapping: HeadAngleMapping
