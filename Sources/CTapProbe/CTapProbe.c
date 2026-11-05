@@ -14,7 +14,7 @@ struct SATapProbe {
 };
 
 SATapProbe *SATapProbeCreate(uint32_t capacity, uint32_t bytesPerSample, bool isFloat32) {
-    if (capacity == 0) return NULL;
+    if (capacity == 0 || bytesPerSample == 0) return NULL;   /* invariant for the callback: bytesPerSample >= 1, so it can never divide by zero */
     SATapProbe *p = (SATapProbe *)calloc(1, sizeof(SATapProbe));
     if (!p) return NULL;
     p->records = (SATapProbeRecord *)calloc(capacity, sizeof(SATapProbeRecord));
@@ -61,9 +61,13 @@ OSStatus SATapProbeIOProc(AudioObjectID inDevice,
     } else {
         for (uint32_t b = 0; b < inInputData->mNumberBuffers; b++) {
             const AudioBuffer *buf = &inInputData->mBuffers[b];
-            if (b == 0 && p->bytesPerSample != 0) {
-                const uint32_t channels = buf->mNumberChannels ? buf->mNumberChannels : 1;
-                frames = buf->mDataByteSize / (p->bytesPerSample * channels);
+            if (b == 0) {
+                /* mNumberChannels comes from the HAL. The product is formed in 64 bits: bytesPerSample >= 1 (SATapProbeCreate refuses 0)
+                 * and channels >= 1, so the divisor is at least 1 and cannot wrap to 0 the way a 32-bit product can
+                 * (4 * 0x40000000 == 0 mod 2^32, a division by zero: undefined behaviour, which arm64 happens to turn into 0). */
+                const uint64_t channels = buf->mNumberChannels ? buf->mNumberChannels : 1;
+                const uint64_t bytesPerFrame = (uint64_t)p->bytesPerSample * channels;
+                frames = (uint32_t)(buf->mDataByteSize / bytesPerFrame);
             }
             if (!buf->mData) { flags |= SA_TAP_FLAG_NULL_BUFFER; continue; }
             if (!p->isFloat32) { flags |= SA_TAP_FLAG_UNSUPPORTED_FORMAT; continue; }

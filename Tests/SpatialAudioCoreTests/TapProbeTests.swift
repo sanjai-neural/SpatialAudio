@@ -148,6 +148,7 @@ final class FakeBackend: TapProbeBackend {
     var failing: [String: Int32] = [:]            // method name -> OSStatus to return
     var readsUntilGone = 1                        // list reads after destroy that still show the object; Int.max = never gone
     var goneDespiteFailure: Set<String> = []      // destroy calls that return an error status but still remove the object
+    var formatBits: UInt32 = 32                   // bits per channel the fake tap reports
     var records: [TapProbeRecord] = []
     // observation
     var log: [String] = []
@@ -168,7 +169,7 @@ final class FakeBackend: TapProbeBackend {
     func readTapUID(_ tap: UInt32) -> (uid: String?, status: Int32) { log.append("readTapUID"); let s = status("readTapUID"); return (s == 0 ? "uid" : nil, s) }
     func readTapFormat(_ tap: UInt32) -> (format: TapFormat?, status: Int32) {
         log.append("readTapFormat"); let s = status("readTapFormat")
-        return (s == 0 ? TapFormat(sampleRate: 48_000, formatID: "lpcm", formatFlags: 0x29, bytesPerPacket: 4, framesPerPacket: 1, bytesPerFrame: 4, channelsPerFrame: 2, bitsPerChannel: 32) : nil, s)
+        return (s == 0 ? TapFormat(sampleRate: 48_000, formatID: "lpcm", formatFlags: 0x29, bytesPerPacket: 4, framesPerPacket: 1, bytesPerFrame: 4, channelsPerFrame: 2, bitsPerChannel: formatBits) : nil, s)
     }
     func prepareCapture(format: TapFormat, capacity: Int) -> Bool { log.append("prepareCapture"); return status("prepareCapture") == 0 }
     func createAggregate(tapUID: String) -> (device: UInt32, status: Int32) {
@@ -250,6 +251,20 @@ final class FakeBackend: TapProbeBackend {
         if order.contains("createIOProc") && b.status("createIOProc") == 0 { #expect(order.contains("destroyIOProc")) }
         #expect(!order.contains("stop"), "\(step): stop was called although the device never started")
         if step == "createTap" { #expect(!order.contains("destroyTap") && !order.contains("createAggregate")) }
+    }
+
+    @Test(arguments: [UInt32(0), 4])
+    func aTapFormatWithoutAWholeByteSampleSizeIsRefusedWithItsRealCauseBeforeAnythingIsAllocated(bits: UInt32) {
+        let b = FakeBackend(); b.formatBits = bits
+        var waitCalled = false
+        let r = run(b) { _ in waitCalled = true }
+        #expect(r.outcome.hasPrefix("failed at tap format: no whole-byte sample size"), "\(r.outcome)")
+        #expect(r.outcome.contains("bitsPerChannel \(bits)") && r.notes.contains { $0.contains("\(bits) bits per channel") })
+        let order = b.log
+        #expect(!order.contains("prepareCapture") && !order.contains("createAggregate") && !order.contains("createIOProc") && !order.contains("start"))
+        #expect(!r.calls.contains { $0.name == "allocate record buffer (control thread)" })        // not reported as an allocation failure
+        #expect(!waitCalled && b.live.isEmpty && r.teardownClean && order.contains("destroyTap"))   // the tap that WAS created is destroyed
+        #expect(r.tapFormat?.bitsPerChannel == bits)
     }
 
     @Test func aFailedStartDestroysTheIOProcTheAggregateAndTheTapInThatOrder() {

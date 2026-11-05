@@ -2,8 +2,11 @@
 
 Nothing below has been run against a real tap by Claude. Every item is **UNVERIFIED** until you run it and report back. The probe only MEASURES: it opens a Core Audio process tap (global, excluding this app, original audio left audible), counts the callbacks and levels for N seconds, writes a numbers-only report and tears everything down. No rendering, no camera, nothing muted, no audio stored.
 
+## Run this on the right commit
+The manual run must be on the commit that carries the callback fix (message starts with **"Step 6a fix:"**), not on `98f22d9`, whose capture callback still had an incomplete zero-divisor guard. Before you start: `git log -1 --oneline` must show that "Step 6a fix:" commit, `git status --short` must be empty, and the bundle must be rebuilt at that commit (`scripts/make-app.sh debug`, below). A report from any other build says nothing about this commit; note the commit hash with each report you send.
+
 ## What you need
-- The dev bundle, rebuilt (it now carries the `NSAudioCaptureUsageDescription` key): `cd /Users/sanjais/ClaudeHome/SpatialAudio && scripts/make-app.sh debug`
+- The dev bundle, rebuilt **at that commit** (it carries the `NSAudioCaptureUsageDescription` key): `cd /Users/sanjais/ClaudeHome/SpatialAudio && scripts/make-app.sh debug`
 - **Non-protected audio** you can start and stop: a local file you own in QuickTime Player (File > Open File), or from Terminal `for i in 1 2 3 4 5 6 7 8; do afplay /System/Library/Sounds/Submarine.aiff; done` (about 15 s, system sounds, not protected). **Do not use** Apple Music subscription tracks, Netflix, Disney+, TV+, or other DRM-protected audio: protected content may be silent in a tap, and we neither work around that nor want it to confuse this run. (A second, deliberate run in section 6 records what protected content does, if you want to see it.)
 - Your usual output (speakers or headphones). The default composition does not touch the output device, so a Bluetooth headset is fine. Note which one you used.
 - Quit any running SpatialAudio first (Cmd+Q), or `open` may bring an old instance forward.

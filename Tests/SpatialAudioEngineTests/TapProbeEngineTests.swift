@@ -103,10 +103,22 @@ private func record(_ probe: OpaquePointer, _ index: UInt32 = 0) -> SATapProbeRe
         #expect(r.flags == 0 && r.frames == 0 && r.samples == 0 && r.peak == 0)
     }
 
-    @Test func anUnknownSampleSizeGivesNoFrames() throws {
-        let p = try #require(SATapProbeCreate(8, 0, false)); defer { SATapProbeFree(p) }
-        callback(p, buffers: [[1, 2, 3, 4]])
-        #expect(record(p).frames == 0)
+    @Test func aZeroSampleSizeIsRefusedAtCreationSoTheCallbackNeverDividesByZero() {
+        // Killable by a behavioural test: remove the check in SATapProbeCreate and this fails. (The old code accepted 0 and guarded
+        // inside the callback; that guard was incomplete, see the next test.)
+        #expect(SATapProbeCreate(8, 0, false) == nil)
+        #expect(SATapProbeCreate(8, 0, true) == nil)
+        #expect(SATapProbeCreate(8, 1, false) != nil)
+    }
+
+    @Test func aChannelCountThatWrapsA32BitProductIsHandled() throws {
+        // bytesPerSample 4 x mNumberChannels 0x40000000 is 0 modulo 2^32: with a 32-bit product the callback divided by zero
+        // (undefined behaviour, which arm64 turns into 0). THIS TEST CANNOT FAIL ON arm64 either way: it documents the intended result
+        // (no crash, 0 frames). The check that can fail is scripts/ubsan-tapprobe.sh (clang integer-divide-by-zero sanitizer).
+        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
+        callback(p, buffers: [[0.5, 0.5, 0.5, 0.5]], channelsPerBuffer: 0x4000_0000)
+        let r = record(p)
+        #expect(r.frames == 0 && r.samples == 4 && r.peak == 0.5)
     }
 
     @Test func aFullBufferDropsAndCountsInsteadOfOverwriting() throws {

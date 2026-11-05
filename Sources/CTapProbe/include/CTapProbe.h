@@ -42,7 +42,8 @@ typedef struct {
 typedef struct SATapProbe SATapProbe;
 
 /* Control thread. Allocates (the record buffer holds `capacity` records). `bytesPerSample` and `isFloat32` come from the
- * tap's AudioStreamBasicDescription; levels are computed only for 32-bit float. Returns NULL on failure. */
+ * tap's AudioStreamBasicDescription; levels are computed only for 32-bit float. Returns NULL on failure, and NULL if `capacity` or
+ * `bytesPerSample` is 0 (the callback divides by bytesPerSample times the channel count and relies on this invariant). */
 SATapProbe *_Nullable SATapProbeCreate(uint32_t capacity, uint32_t bytesPerSample, bool isFloat32);
 
 /* Control thread. Frees. Only when no callback can run any more (see above). */

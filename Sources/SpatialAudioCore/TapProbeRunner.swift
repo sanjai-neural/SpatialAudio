@@ -145,6 +145,13 @@ public enum TapProbeRunner {
             let fmt = backend.readTapFormat(tap.tap); log(Name.tapFormat, fmt.status)
             guard fmt.status == 0, let f = fmt.format else { failed(Name.tapFormat); break build }
             format = f
+            // The C callback divides by bytes-per-sample x channels, so a format without a whole-byte sample size (for example
+            // 0 or 4 bits per channel) cannot be measured. Refuse it with its real cause instead of letting the allocation fail.
+            guard f.bytesPerSample > 0 else {
+                failed("tap format: no whole-byte sample size (bitsPerChannel \(f.bitsPerChannel))")
+                notes.append("The tap reported \(f.bitsPerChannel) bits per channel, which gives no whole-byte sample size; the probe cannot measure such a format.")
+                break build
+            }
 
             let ok = backend.prepareCapture(format: f, capacity: recordCapacity(forSeconds: environment.requestedSeconds))
             log(Name.allocate, ok ? 0 : -108, ok ? nil : "memFullErr")
