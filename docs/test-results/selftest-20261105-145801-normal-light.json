@@ -1,0 +1,1558 @@
+{
+  "assumptions" : [
+    "Signs assume each move was performed in the instructed direction; the test cannot see which way you actually moved.",
+    "Angles are RAW Vision values (VNFaceObservation yaw\/pitch\/roll, revision 3) before any sign mapping.",
+    "All thresholds are untuned proposals; the values used are listed in this report.",
+    "Latency excludes any delay before the camera sample timestamp.",
+    "Release check proves the capture session stopped; whether the green camera light is off is a visual check."
+  ],
+  "cameraRelease" : {
+    "callbacksAfterStop" : 0,
+    "inputsAfterStop" : 0,
+    "isRunningAfterStop" : false,
+    "outputsAfterStop" : 0,
+    "secondsSinceStop" : 1.2291803329935647,
+    "sessionObjectDeallocated" : true,
+    "stopNotificationsObserved" : 1,
+    "wasRunningBeforeStop" : true
+  },
+  "config" : {
+    "gate" : {
+      "lossBelow" : 0.4,
+      "lossDwell" : 0.1,
+      "recoverAbove" : 0.6,
+      "recoverDwell" : 0.2
+    },
+    "loss" : {
+      "frameStallWarningSeconds" : 0.15,
+      "ignoreGapFactor" : 2.5,
+      "jumpSafetyFactor" : 1.25,
+      "jumpThresholdFloorDegrees" : 10,
+      "minMeaningfulTravelDegrees" : 10,
+      "sequenceLeadInSeconds" : 1,
+      "smoothstepPeakFactor" : 1.5,
+      "timingToleranceSeconds" : 0.25
+    },
+    "machine" : {
+      "decayDuration" : 1.5,
+      "holdDuration" : 0.5,
+      "minConfidence" : 0.5,
+      "reacquireBlendDuration" : 0.25
+    },
+    "minimumStatsFrames" : 150,
+    "signs" : {
+      "driftSubWindowSamples" : 10,
+      "magnitudeAgreementRatio" : 0.5,
+      "maxHoldSpreadRatio" : 0.4,
+      "maxLeakageRatio" : 0.6,
+      "minFacePresentFraction" : 0.6,
+      "minHoldSamples" : 15,
+      "minMovementDegrees" : {
+        "pitch" : 10,
+        "roll" : 10,
+        "yaw" : 15
+      },
+      "minReferenceSamples" : 10,
+      "noiseMultiple" : 5,
+      "requiredValidRepetitions" : 2,
+      "steadyReferenceSigmaDegrees" : 3
+    }
+  },
+  "createdAt" : "2026-11-05T14:58:01+05:30",
+  "environment" : {
+    "cameraName" : "MacBook Air Camera",
+    "capturePreset" : "640x480 (AVCaptureSession.Preset.vga640x480)",
+    "framesMirroredFraction" : 0,
+    "hardwareModel" : "Mac16,12",
+    "macOSVersion" : "Version 27.2 (Build 26B123)",
+    "videoRotationAnglesDegrees" : [
+      0
+    ],
+    "visionRevision" : 3
+  },
+  "greenLight" : "not answered",
+  "inputSource" : "camera",
+  "lighting" : "normal light",
+  "loss" : {
+    "expectedDecaySeconds" : 1.5,
+    "expectedHoldSeconds" : 0.5,
+    "expectedSequence" : [
+      "locked",
+      "holding",
+      "decaying",
+      "static",
+      "locked"
+    ],
+    "framesAnalyzed" : 300,
+    "heldPoseTravelDegrees" : 2.368443593967794,
+    "ignoredGapPairs" : 0,
+    "jumpCheckMeaningful" : false,
+    "jumpFlagged" : false,
+    "jumpThresholdDegrees" : 10,
+    "maxFrameJumpDegrees" : 8.587341675564288,
+    "maxJumpSecondsAfterCoverCue" : 0.744070875000034,
+    "maxJumpState" : "locked",
+    "notes" : [
+      "jump check is weak: the held pose was only 2.4° from neutral (need ≥ 10° for a meaningful test)"
+    ],
+    "observedSequence" : [
+      "locked",
+      "holding",
+      "decaying",
+      "static",
+      "locked"
+    ],
+    "reacquirePoseTravelDegrees" : 3.5315649974189545,
+    "reacquireSecondsAfterUncoverCue" : 1.1813991249946412,
+    "secondsInState" : {
+      "decaying" : 1.5000723329940229,
+      "holding" : 0.5000882500025909,
+      "lockedBeforeLoss" : 2.929620959002932,
+      "staticState" : 2.240542457999254
+    },
+    "stepEvidence" : {
+      "classification" : {
+        "displacementOverTenFramesDegrees" : 41.902185173120756,
+        "explanation" : "The largest one-frame raw step was 16.5°, less than half of the 41.9° the raw orientation moved over 10 frames: a movement spread over several frames, consistent with a real fast turn.",
+        "kind" : "multiFrameMovement",
+        "nearStateChange" : false,
+        "rawStepDegrees" : 16.52850633715908,
+        "rawStepDegreesPerSecond" : 497.56807321973986
+      },
+      "frames" : [
+        {
+          "faceBoxCenterX" : 0.6287031397223473,
+          "faceBoxCenterY" : 0.4549717530608177,
+          "faceBoxHeight" : 0.1554543823003769,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 13.183594423691822,
+            "roll" : -8.701172644070589,
+            "yaw" : 68.37890891320858
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 13.330929706185211,
+            "roll" : -8.868710414890968,
+            "yaw" : 69.74858100403151
+          },
+          "quality" : 0.5545438230037688,
+          "rawVisionDegrees" : {
+            "pitch" : -13.183594423691822,
+            "roll" : -8.701172644070589,
+            "yaw" : 68.37890891320858
+          },
+          "secondsFromStep" : -0.49997808300395263,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.628221906721592,
+          "faceBoxCenterY" : 0.45419351011514664,
+          "faceBoxHeight" : 0.15996672213077545,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 13.447265338863703,
+            "roll" : -8.701172644070589,
+            "yaw" : 68.90625415864692
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 13.354661636459957,
+            "roll" : -8.834960311528018,
+            "yaw" : 69.57820979620612
+          },
+          "quality" : 0.5996672213077544,
+          "rawVisionDegrees" : {
+            "pitch" : -13.447265338863703,
+            "roll" : -8.701172644070589,
+            "yaw" : 68.90625415864692
+          },
+          "secondsFromStep" : -0.4682181660027709,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.62366983294487,
+          "faceBoxCenterY" : 0.45928269624710083,
+          "faceBoxHeight" : 0.15585112571716309,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 13.359375318397625,
+            "roll" : -8.613281769830865,
+            "yaw" : 68.99414503288664
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 13.355771604570998,
+            "roll" : -8.79098598816032,
+            "yaw" : 69.46233972666472
+          },
+          "quality" : 0.5585112571716307,
+          "rawVisionDegrees" : {
+            "pitch" : -13.359375318397625,
+            "roll" : -8.613281769830865,
+            "yaw" : 68.99414503288664
+          },
+          "secondsFromStep" : -0.4329033750036615,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.622786395251751,
+          "faceBoxCenterY" : 0.4618251770734787,
+          "faceBoxHeight" : 0.15223661065101624,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 13.007812675212374,
+            "roll" : -8.52539089559114,
+            "yaw" : 68.90625415864692
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 13.287616675709495,
+            "roll" : -8.738508607422503,
+            "yaw" : 69.35290832360904
+          },
+          "quality" : 0.5223661065101622,
+          "rawVisionDegrees" : {
+            "pitch" : -13.007812675212374,
+            "roll" : -8.52539089559114,
+            "yaw" : 68.90625415864692
+          },
+          "secondsFromStep" : -0.39926166600344004,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6201071813702583,
+          "faceBoxCenterY" : 0.46318455040454865,
+          "faceBoxHeight" : 0.14861759543418884,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 13.75488254492909,
+            "roll" : -8.437500021351417,
+            "yaw" : 68.37890891320858
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 13.380569181752408,
+            "roll" : -8.67957892857693,
+            "yaw" : 69.16032448322538
+          },
+          "quality" : 0.48617595434188837,
+          "rawVisionDegrees" : {
+            "pitch" : -13.75488254492909,
+            "roll" : -8.437500021351417,
+            "yaw" : 68.37890891320858
+          },
+          "secondsFromStep" : -0.36814975000015693,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6194144301116467,
+          "faceBoxCenterY" : 0.4622054323554039,
+          "faceBoxHeight" : 0.1468440145254135,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 12.87597636385279,
+            "roll" : -8.52539089559114,
+            "yaw" : 68.8183632844072
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 13.279810882015592,
+            "roll" : -8.648495480817939,
+            "yaw" : 69.09182404352036
+          },
+          "quality" : 0.4684401452541351,
+          "rawVisionDegrees" : {
+            "pitch" : -12.87597636385279,
+            "roll" : -8.52539089559114,
+            "yaw" : 68.8183632844072
+          },
+          "secondsFromStep" : -0.3353449999995064,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6354831531643867,
+          "faceBoxCenterY" : 0.4528712034225464,
+          "faceBoxHeight" : 0.1516062617301941,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 10.766601358514935,
+            "roll" : -17.666016203313056,
+            "yaw" : 65.47851689348686
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 12.585314807563968,
+            "roll" : -10.945046944584895,
+            "yaw" : 68.20456084374337
+          },
+          "quality" : 0.5160626173019408,
+          "rawVisionDegrees" : {
+            "pitch" : -10.766601358514935,
+            "roll" : -17.666016203313056,
+            "yaw" : 65.47851689348686
+          },
+          "secondsFromStep" : -0.29888833300356055,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6227969899773598,
+          "faceBoxCenterY" : 0.4629969745874405,
+          "faceBoxHeight" : 0.15222129225730896,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 12.348633679735384,
+            "roll" : -8.876953538776391,
+            "yaw" : 68.8183632844072
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 12.513514700301327,
+            "roll" : -10.33733297767869,
+            "yaw" : 68.38409486524434
+          },
+          "quality" : 0.5222129225730895,
+          "rawVisionDegrees" : {
+            "pitch" : -12.348633679735384,
+            "roll" : -8.876953538776391,
+            "yaw" : 68.8183632844072
+          },
+          "secondsFromStep" : -0.2657494160011993,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6315323002636433,
+          "faceBoxCenterY" : 0.4526617005467415,
+          "faceBoxHeight" : 0.15543235838413239,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 14.985353076737935,
+            "roll" : -10.898437669874522,
+            "yaw" : 69.25781082541664
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 13.235000821228722,
+            "roll" : -10.49632066127263,
+            "yaw" : 68.63531990667934
+          },
+          "quality" : 0.5543235838413237,
+          "rawVisionDegrees" : {
+            "pitch" : -14.985353076737935,
+            "roll" : -10.898437669874522,
+            "yaw" : 69.25781082541664
+          },
+          "secondsFromStep" : -0.23202683300041826,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6295356824994087,
+          "faceBoxCenterY" : 0.4520082473754883,
+          "faceBoxHeight" : 0.156599223613739,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 14.985353076737935,
+            "roll" : -15.380860303269401,
+            "yaw" : 66.79687317689354
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 13.745444129315576,
+            "roll" : -11.967835611657724,
+            "yaw" : 68.06768062633827
+          },
+          "quality" : 0.56599223613739,
+          "rawVisionDegrees" : {
+            "pitch" : -14.985353076737935,
+            "roll" : -15.380860303269401,
+            "yaw" : 66.79687317689354
+          },
+          "secondsFromStep" : -0.19822941600432387,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6306717284023762,
+          "faceBoxCenterY" : 0.4511256143450737,
+          "faceBoxHeight" : 0.1582377403974533,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 17.05078179118228,
+            "roll" : -18.984375901814335,
+            "yaw" : 65.56640776772657
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 14.717005256415382,
+            "roll" : -14.101620186006954,
+            "yaw" : 67.26862007884081
+          },
+          "quality" : 0.582377403974533,
+          "rawVisionDegrees" : {
+            "pitch" : -17.05078179118228,
+            "roll" : -18.984375901814335,
+            "yaw" : 65.56640776772657
+          },
+          "secondsFromStep" : -0.16625158300303156,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6315190196037292,
+          "faceBoxCenterY" : 0.45054685324430466,
+          "faceBoxHeight" : 0.15959946811199188,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 14.414064101727021,
+            "roll" : -18.89648502757461,
+            "yaw" : 64.77538989956906
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 14.605935060775838,
+            "roll" : -15.525309287025177,
+            "yaw" : 66.5304176217536
+          },
+          "quality" : 0.5959946811199187,
+          "rawVisionDegrees" : {
+            "pitch" : -14.414064101727021,
+            "roll" : -18.89648502757461,
+            "yaw" : 64.77538989956906
+          },
+          "secondsFromStep" : -0.13308670800324762,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6251958757638931,
+          "faceBoxCenterY" : 0.4484337940812111,
+          "faceBoxHeight" : 0.17216558754444122,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 13.271485297931548,
+            "roll" : -11.074218564580322,
+            "yaw" : 60.82031421915981
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 14.231432114596437,
+            "roll" : -14.103217718786642,
+            "yaw" : 64.71339208584479
+          },
+          "quality" : 0.7216558754444121,
+          "rawVisionDegrees" : {
+            "pitch" : -13.271485297931548,
+            "roll" : -11.074218564580322,
+            "yaw" : 60.82031421915981
+          },
+          "secondsFromStep" : -0.1003124580020085,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6234946399927139,
+          "faceBoxCenterY" : 0.4448855593800545,
+          "faceBoxHeight" : 0.19408006966114044,
+          "limiting" : "size",
+          "mappedDegrees" : {
+            "pitch" : 12.084961910789858,
+            "roll" : -8.964844413016115,
+            "yaw" : 54.31641001598774
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 13.636034658474967,
+            "roll" : -12.39057509462682,
+            "yaw" : 61.31351660561044
+          },
+          "quality" : 0.9408006966114043,
+          "rawVisionDegrees" : {
+            "pitch" : -12.084961910789858,
+            "roll" : -8.964844413016115,
+            "yaw" : 54.31641001598774
+          },
+          "secondsFromStep" : -0.0672006250024424,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6170708760619164,
+          "faceBoxCenterY" : 0.4425383359193802,
+          "faceBoxHeight" : 0.20146217942237854,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 10.942383106994383,
+            "roll" : -7.910156483460365,
+            "yaw" : 52.38281419780839
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 12.8681955712535,
+            "roll" : -10.939919823861915,
+            "yaw" : 58.489901037441655
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -10.942383106994383,
+            "roll" : -7.910156483460365,
+            "yaw" : 52.38281419780839
+          },
+          "secondsFromStep" : -0.032532875004108064,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.6078569069504738,
+          "faceBoxCenterY" : 0.4419877305626869,
+          "faceBoxHeight" : 0.220505490899086,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 5.449218834937261,
+            "roll" : -14.765625891138626,
+            "yaw" : 37.3535156839506
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 9.972541734933662,
+            "roll" : -12.034613619187851,
+            "yaw" : 50.692864179698354
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -5.449218834937261,
+            "roll" : -14.765625891138626,
+            "yaw" : 37.3535156839506
+          },
+          "secondsFromStep" : 0,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.600113146007061,
+          "faceBoxCenterY" : 0.43822242319583893,
+          "faceBoxHeight" : 0.21552148461341858,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 5.80078147812251,
+            "roll" : -6.1523441213077605,
+            "yaw" : 39.28710808703536
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 8.536223125940793,
+            "roll" : -9.7108497160661,
+            "yaw" : 46.32598510355935
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -5.80078147812251,
+            "roll" : -6.1523441213077605,
+            "yaw" : 39.28710808703536
+          },
+          "secondsFromStep" : 0.03276862499478739,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5919030606746674,
+          "faceBoxCenterY" : 0.44295933097600937,
+          "faceBoxHeight" : 0.22600023448467255,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 10.502929589569408,
+            "roll" : -5.625000156529885,
+            "yaw" : 40.1660168294326
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 9.310691894234997,
+            "roll" : -8.234106035463505,
+            "yaw" : 44.07834218207139
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -10.502929589569408,
+            "roll" : -5.625000156529885,
+            "yaw" : 40.1660168294326
+          },
+          "secondsFromStep" : 0.0693452499981504,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5833560153841972,
+          "faceBoxCenterY" : 0.43913066387176514,
+          "faceBoxHeight" : 0.22820311784744263,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 3.559570374868482,
+            "roll" : -4.218750010675708,
+            "yaw" : 31.376953311122286
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 7.207121494498126,
+            "roll" : -6.534290235866334,
+            "yaw" : 39.132199079016466
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -3.559570374868482,
+            "roll" : -4.218750010675708,
+            "yaw" : 31.376953311122286
+          },
+          "secondsFromStep" : 0.10321362499962561,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5744127929210663,
+          "faceBoxCenterY" : 0.44244594126939774,
+          "faceBoxHeight" : 0.23115070164203644,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 9.755859719852692,
+            "roll" : -4.921874870159385,
+            "yaw" : 29.794920989901836
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 8.206627785354728,
+            "roll" : -5.972048922545925,
+            "yaw" : 35.59724650819466
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -9.755859719852692,
+            "roll" : -4.921874870159385,
+            "yaw" : 29.794920989901836
+          },
+          "secondsFromStep" : 0.1337457089975942,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5658205300569534,
+          "faceBoxCenterY" : 0.4421391263604164,
+          "faceBoxHeight" : 0.23122109472751617,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 3.4277342769523074,
+            "roll" : -4.4824222065080574,
+            "yaw" : 25.4882818125337
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 6.416263637873416,
+            "roll" : -5.302615018994363,
+            "yaw" : 31.717743271351488
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -3.4277342769523074,
+            "roll" : -4.4824222065080574,
+            "yaw" : 25.4882818125337
+          },
+          "secondsFromStep" : 0.1672158750006929,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5599649101495743,
+          "faceBoxCenterY" : 0.43791060149669647,
+          "faceBoxHeight" : 0.23459669947624207,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 7.954101920580227,
+            "roll" : -4.042969115969907,
+            "yaw" : 21.621095298816886
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 7.019833811724613,
+            "roll" : -4.861931821053569,
+            "yaw" : 27.931109309801055
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -7.954101920580227,
+            "roll" : -4.042969115969907,
+            "yaw" : 21.621095298816886
+          },
+          "secondsFromStep" : 0.20112004199472722,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5545423105359077,
+          "faceBoxCenterY" : 0.43903154879808426,
+          "faceBoxHeight" : 0.2363433986902237,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 3.0322266235340183,
+            "roll" : -3.164062721450193,
+            "yaw" : 20.47851734879506
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 5.578009299455571,
+            "roll" : -4.175192092458067,
+            "yaw" : 25.168465776331086
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -3.0322266235340183,
+            "roll" : -3.164062721450193,
+            "yaw" : 20.47851734879506
+          },
+          "secondsFromStep" : 0.23424425000121119,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5507808178663254,
+          "faceBoxCenterY" : 0.43837951868772507,
+          "faceBoxHeight" : 0.23777996003627777,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 2.7246094174686304,
+            "roll" : -2.0214845579849534,
+            "yaw" : 19.86328122911699
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 4.611729026335902,
+            "roll" : -3.397874438155819,
+            "yaw" : 23.315256013005435
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -2.7246094174686304,
+            "roll" : -2.0214845579849534,
+            "yaw" : 19.86328122911699
+          },
+          "secondsFromStep" : 0.267499333996966,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5476498082280159,
+          "faceBoxCenterY" : 0.43520037829875946,
+          "faceBoxHeight" : 0.2345481812953949,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 4.658203101213859,
+            "roll" : -1.2304687175398463,
+            "yaw" : 11.60156295624502
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 4.679045221496054,
+            "roll" : -2.6256395342398267,
+            "yaw" : 19.13342564874717
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -4.658203101213859,
+            "roll" : -1.2304687175398463,
+            "yaw" : 11.60156295624502
+          },
+          "secondsFromStep" : 0.30281462499988265,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.543717622756958,
+          "faceBoxCenterY" : 0.4351714253425598,
+          "faceBoxHeight" : 0.23716211318969727,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 3.120117284330331,
+            "roll" : -1.5820313607250964,
+            "yaw" : 10.371094131983469
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 4.167600512707581,
+            "roll" : -2.2442505532139307,
+            "yaw" : 16.15199038944414
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -3.120117284330331,
+            "roll" : -1.5820313607250964,
+            "yaw" : 10.371094131983469
+          },
+          "secondsFromStep" : 0.3358566249953583,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5414368882775307,
+          "faceBoxCenterY" : 0.4354998767375946,
+          "faceBoxHeight" : 0.23819559812545776,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 1.4501953695306276,
+            "roll" : -0.878906234437155,
+            "yaw" : 11.337890333525849
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 3.297304107130278,
+            "roll" : -1.7751802244552137,
+            "yaw" : 14.579225502451155
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -1.4501953695306276,
+            "roll" : -0.878906234437155,
+            "yaw" : 11.337890333525849
+          },
+          "secondsFromStep" : 0.36764374999620486,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5374947339296341,
+          "faceBoxCenterY" : 0.4331776723265648,
+          "faceBoxHeight" : 0.23920904099941254,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 2.9882811864141563,
+            "roll" : -1.1425781634652397,
+            "yaw" : 7.5585938402751145
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 3.2065169079816953,
+            "roll" : -1.5678955344534928,
+            "yaw" : 12.323618980874935
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -2.9882811864141563,
+            "roll" : -1.1425781634652397,
+            "yaw" : 7.5585938402751145
+          },
+          "secondsFromStep" : 0.3986528749956051,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.533023864030838,
+          "faceBoxCenterY" : 0.432844839990139,
+          "faceBoxHeight" : 0.24037902057170868,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 3.164062721450193,
+            "roll" : -0.08789062744577945,
+            "yaw" : 4.218750010675708
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 3.2157093194579223,
+            "roll" : -1.101015868325636,
+            "yaw" : 9.769265981592216
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -3.164062721450193,
+            "roll" : -0.08789062744577945,
+            "yaw" : 4.218750010675708
+          },
+          "secondsFromStep" : 0.4343270419994951,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5314991995692253,
+          "faceBoxCenterY" : 0.432204894721508,
+          "faceBoxHeight" : 0.24124883115291595,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 3.2080077316832316,
+            "roll" : 0.3515625097831178,
+            "yaw" : 2.900390739061255
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 3.231677315620457,
+            "roll" : -0.6643828579120529,
+            "yaw" : 7.704319191857669
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -3.2080077316832316,
+            "roll" : 0.3515625097831178,
+            "yaw" : 2.900390739061255
+          },
+          "secondsFromStep" : 0.46872112499841023,
+          "state" : "locked"
+        },
+        {
+          "faceBoxCenterX" : 0.5306897014379501,
+          "faceBoxCenterY" : 0.43154506385326385,
+          "faceBoxHeight" : 0.24072745442390442,
+          "limiting" : "none",
+          "mappedDegrees" : {
+            "pitch" : 1.2744140479380026,
+            "roll" : 0.5273437513344635,
+            "yaw" : 3.6914064727846565
+          },
+          "outputPoseDegrees" : {
+            "pitch" : 2.66964470548704,
+            "roll" : -0.3025662262407875,
+            "yaw" : 6.529364728910725
+          },
+          "quality" : 1,
+          "rawVisionDegrees" : {
+            "pitch" : -1.2744140479380026,
+            "roll" : 0.5273437513344635,
+            "yaw" : 3.6914064727846565
+          },
+          "secondsFromStep" : 0.5007112089951988,
+          "state" : "locked"
+        }
+      ],
+      "secondsAfterCoverCue" : 0.744070875000034,
+      "stateAtStep" : "locked",
+      "stepDegrees" : 8.587341675564288
+    },
+    "timeToStaticSeconds" : 2.000160582996614,
+    "verdict" : "pass"
+  },
+  "mappingDuringTest" : {
+    "invertPitch" : false,
+    "invertRoll" : false,
+    "invertYaw" : false
+  },
+  "qualityByPhase" : [
+    {
+      "fractionBelowLossThreshold" : 0.06562847608453838,
+      "fractionBelowRecoverThreshold" : 0.135706340378198,
+      "frames" : 899,
+      "limitingFractions" : {
+        "none" : 0.6307007786429366,
+        "size" : 0.3692992213570634
+      },
+      "limitingFractionsWhenLow" : {
+        "size" : 1
+      },
+      "meanQuality" : 0.862267843641349,
+      "minQuality" : 0.285845935344696,
+      "name" : "statistics window (hold + rest)",
+      "watchdogTicks" : 0
+    },
+    {
+      "fractionBelowLossThreshold" : 0,
+      "fractionBelowRecoverThreshold" : 0,
+      "frames" : 60,
+      "limitingFractions" : {
+        "none" : 1
+      },
+      "limitingFractionsWhenLow" : {
+
+      },
+      "meanQuality" : 1,
+      "minQuality" : 1,
+      "name" : "baseline",
+      "watchdogTicks" : 0
+    },
+    {
+      "fractionBelowLossThreshold" : 0,
+      "fractionBelowRecoverThreshold" : 0.08333333333333333,
+      "frames" : 180,
+      "limitingFractions" : {
+        "none" : 0.3111111111111111,
+        "size" : 0.6888888888888889
+      },
+      "limitingFractionsWhenLow" : {
+        "size" : 1
+      },
+      "meanQuality" : 0.777886804441611,
+      "minQuality" : 0.4964587986469268,
+      "name" : "hold: turn LEFT",
+      "watchdogTicks" : 0
+    },
+    {
+      "fractionBelowLossThreshold" : 0.28888888888888886,
+      "fractionBelowRecoverThreshold" : 0.5166666666666667,
+      "frames" : 180,
+      "limitingFractions" : {
+        "none" : 0.2833333333333333,
+        "size" : 0.7166666666666667
+      },
+      "limitingFractionsWhenLow" : {
+        "size" : 1
+      },
+      "meanQuality" : 0.6478098124265671,
+      "minQuality" : 0.285845935344696,
+      "name" : "hold: look UP",
+      "watchdogTicks" : 0
+    },
+    {
+      "fractionBelowLossThreshold" : 0,
+      "fractionBelowRecoverThreshold" : 0,
+      "frames" : 180,
+      "limitingFractions" : {
+        "none" : 0.8944444444444445,
+        "size" : 0.10555555555555556
+      },
+      "limitingFractionsWhenLow" : {
+
+      },
+      "meanQuality" : 0.9953265519605743,
+      "minQuality" : 0.9013410806655883,
+      "name" : "hold: tilt RIGHT EAR",
+      "watchdogTicks" : 0
+    },
+    {
+      "fractionBelowLossThreshold" : 0.019498607242339833,
+      "fractionBelowRecoverThreshold" : 0.03899721448467967,
+      "frames" : 359,
+      "limitingFractions" : {
+        "none" : 0.8328690807799443,
+        "size" : 0.1671309192200557
+      },
+      "limitingFractionsWhenLow" : {
+        "size" : 1
+      },
+      "meanQuality" : 0.9453889165582099,
+      "minQuality" : 0.34574815630912775,
+      "name" : "rest",
+      "watchdogTicks" : 0
+    },
+    {
+      "fractionBelowLossThreshold" : 0.02197802197802198,
+      "fractionBelowRecoverThreshold" : 0.38461538461538464,
+      "frames" : 91,
+      "limitingFractions" : {
+        "none" : 0.3076923076923077,
+        "size" : 0.6923076923076923
+      },
+      "limitingFractionsWhenLow" : {
+        "size" : 1
+      },
+      "meanQuality" : 0.7099724405414456,
+      "minQuality" : 0.37624204158782953,
+      "name" : "loss test: turn (incl. waiting for lock)",
+      "watchdogTicks" : 0
+    },
+    {
+      "fractionBelowLossThreshold" : 0.6333333333333333,
+      "fractionBelowRecoverThreshold" : 0.7533333333333333,
+      "frames" : 150,
+      "limitingFractions" : {
+        "no face" : 0.6333333333333333,
+        "none" : 0.22666666666666666,
+        "size" : 0.14
+      },
+      "limitingFractionsWhenLow" : {
+        "no face" : 0.8407079646017699,
+        "size" : 0.1592920353982301
+      },
+      "meanQuality" : 0.3075127762556076,
+      "minQuality" : 0,
+      "name" : "loss test: cover",
+      "watchdogTicks" : 0
+    },
+    {
+      "fractionBelowLossThreshold" : 0.24166666666666667,
+      "fractionBelowRecoverThreshold" : 0.24166666666666667,
+      "frames" : 120,
+      "limitingFractions" : {
+        "no face" : 0.24166666666666667,
+        "none" : 0.75,
+        "scale jump" : 0.008333333333333333
+      },
+      "limitingFractionsWhenLow" : {
+        "no face" : 1
+      },
+      "meanQuality" : 0.7573319191065545,
+      "minQuality" : 0,
+      "name" : "loss test: uncover",
+      "watchdogTicks" : 0
+    },
+    {
+      "fractionBelowLossThreshold" : 0.1343390804597701,
+      "fractionBelowRecoverThreshold" : 0.21623563218390804,
+      "frames" : 1392,
+      "limitingFractions" : {
+        "no face" : 0.09051724137931035,
+        "none" : 0.6099137931034483,
+        "scale jump" : 0.0007183908045977011,
+        "size" : 0.2988505747126437
+      },
+      "limitingFractionsWhenLow" : {
+        "no face" : 0.4186046511627907,
+        "size" : 0.5813953488372093
+      },
+      "meanQuality" : 0.7951099355272788,
+      "minQuality" : 0,
+      "name" : "whole run",
+      "watchdogTicks" : 0
+    }
+  ],
+  "schemaVersion" : 2,
+  "signs" : {
+    "pitch" : {
+      "axis" : "pitch",
+      "framesMirrored" : false,
+      "invertNeeded" : false,
+      "outcome" : "determined",
+      "rawVisionSign" : -1,
+      "reasons" : [
+
+      ],
+      "repetitions" : [
+        {
+          "deltaDegrees" : {
+            "pitch" : -40.91308797980978,
+            "roll" : -1.7578124688743098,
+            "yaw" : -0.2416991837877272
+          },
+          "enoughMovement" : true,
+          "holdFrames" : 61,
+          "holdSamples" : 61,
+          "holdSpreadDegrees" : 1.042456081182518,
+          "holdStats" : {
+            "pitch" : {
+              "driftDegrees" : 5.7568368947762885,
+              "medianDegrees" : -34.36523620508373,
+              "p10ToP90Degrees" : 3.95507909550383,
+              "rangeDegrees" : 7.95410362812752,
+              "samples" : 61,
+              "sigmaDegrees" : 1.042456081182518
+            },
+            "roll" : {
+              "driftDegrees" : 1.2304687175398463,
+              "medianDegrees" : 1.9335936837452292,
+              "p10ToP90Degrees" : 1.4062499324107656,
+              "rangeDegrees" : 2.9882811864141563,
+              "samples" : 61,
+              "sigmaDegrees" : 0.7818396875028749
+            },
+            "yaw" : {
+              "driftDegrees" : 2.5488282092678176,
+              "medianDegrees" : -0.6152343587699232,
+              "p10ToP90Degrees" : 2.636718783352744,
+              "rangeDegrees" : 4.921875030241944,
+              "samples" : 61,
+              "sigmaDegrees" : 1.4333730373167386
+            }
+          },
+          "intendedDeltaDegrees" : -40.91308797980978,
+          "leakageFailed" : false,
+          "leakageRatio" : 0.04296455133725847,
+          "problems" : [
+
+          ],
+          "referenceNoiseDegrees" : 1.237913431892223,
+          "referenceSamples" : 30,
+          "referenceStats" : {
+            "pitch" : {
+              "driftDegrees" : 4.74609354856676,
+              "medianDegrees" : 6.547851774726049,
+              "p10ToP90Degrees" : 6.328125442900386,
+              "rangeDegrees" : 8.789062877980077,
+              "samples" : 30,
+              "sigmaDegrees" : 1.237913431892223
+            },
+            "roll" : {
+              "driftDegrees" : 2.1093748452552954,
+              "medianDegrees" : 3.691406152619539,
+              "p10ToP90Degrees" : 3.164062614728487,
+              "rangeDegrees" : 3.6914063127020977,
+              "samples" : 30,
+              "sigmaDegrees" : 0.7818400039540766
+            },
+            "yaw" : {
+              "driftDegrees" : 2.416992284774415,
+              "medianDegrees" : -0.37353517498219596,
+              "p10ToP90Degrees" : 3.251953062081388,
+              "rangeDegrees" : 7.602539063951565,
+              "samples" : 30,
+              "sigmaDegrees" : 0.9447231732928415
+            }
+          },
+          "requiredMovementDegrees" : 10,
+          "usable" : true
+        },
+        {
+          "deltaDegrees" : {
+            "pitch" : -28.4765638527215,
+            "roll" : -1.8457030763097695,
+            "yaw" : 13.095703656173804
+          },
+          "enoughMovement" : true,
+          "holdFrames" : 60,
+          "holdSamples" : 60,
+          "holdSpreadDegrees" : 0.6841092716664143,
+          "holdStats" : {
+            "pitch" : {
+              "driftDegrees" : 1.8017577992724654,
+              "medianDegrees" : -33.59619276303344,
+              "p10ToP90Degrees" : 1.7138686325800379,
+              "rangeDegrees" : 3.383788412945627,
+              "samples" : 60,
+              "sigmaDegrees" : 0.6841092716664143
+            },
+            "roll" : {
+              "driftDegrees" : 0.9228515915157376,
+              "medianDegrees" : -0.6152343587699232,
+              "p10ToP90Degrees" : 1.054687502668927,
+              "rangeDegrees" : 2.2851562735696263,
+              "samples" : 60,
+              "sigmaDegrees" : 0.26061338739322587
+            },
+            "yaw" : {
+              "driftDegrees" : 2.6806639803487684,
+              "medianDegrees" : 10.239258247510705,
+              "p10ToP90Degrees" : 2.900391165948079,
+              "rangeDegrees" : 8.261719553532437,
+              "samples" : 60,
+              "sigmaDegrees" : 1.172759293915912
+            }
+          },
+          "intendedDeltaDegrees" : -28.4765638527215,
+          "leakageFailed" : false,
+          "leakageRatio" : 0.4598765400173887,
+          "problems" : [
+
+          ],
+          "referenceNoiseDegrees" : 0.8144162818142271,
+          "referenceSamples" : 30,
+          "referenceStats" : {
+            "pitch" : {
+              "driftDegrees" : 1.0986329397887893,
+              "medianDegrees" : -5.119628910311942,
+              "p10ToP90Degrees" : 2.373047201170203,
+              "rangeDegrees" : 3.6035160254317553,
+              "samples" : 30,
+              "sigmaDegrees" : 0.8144162818142271
+            },
+            "roll" : {
+              "driftDegrees" : 0.3515625364635442,
+              "medianDegrees" : 1.2304687175398463,
+              "p10ToP90Degrees" : 1.054687609390633,
+              "rangeDegrees" : 1.5820312139827508,
+              "samples" : 30,
+              "sigmaDegrees" : 0.521226656117251
+            },
+            "yaw" : {
+              "driftDegrees" : 1.1206053381836028,
+              "medianDegrees" : -2.856445408663099,
+              "p10ToP90Degrees" : 1.3623049221777266,
+              "rangeDegrees" : 1.7578123621526038,
+              "samples" : 30,
+              "sigmaDegrees" : 0.6189567159461108
+            }
+          },
+          "requiredMovementDegrees" : 10,
+          "usable" : true
+        }
+      ]
+    },
+    "roll" : {
+      "axis" : "roll",
+      "outcome" : "inconclusive",
+      "reasons" : [
+        "only 0 of 2 repetitions usable (need 2)",
+        "repetition 1: movement too small: 3.7° < required 10.0° (floor 10°, 5× noise 1.0°)",
+        "repetition 2: movement too small: 2.7° < required 10.0° (floor 10°, 5× noise 0.3°)"
+      ],
+      "repetitions" : [
+        {
+          "deltaDegrees" : {
+            "pitch" : 26.806641057467726,
+            "roll" : -3.691406152619539,
+            "yaw" : -57.832031325198365
+          },
+          "enoughMovement" : false,
+          "holdFrames" : 59,
+          "holdSamples" : 59,
+          "holdSpreadDegrees" : 0.9121465394250885,
+          "holdStats" : {
+            "pitch" : {
+              "driftDegrees" : 9.272463326628795,
+              "medianDegrees" : 27.246094174686302,
+              "p10ToP90Degrees" : 9.316408763748658,
+              "rangeDegrees" : 15.908202133613159,
+              "samples" : 59,
+              "sigmaDegrees" : 4.560732697125444
+            },
+            "roll" : {
+              "driftDegrees" : 3.7353516164198273,
+              "medianDegrees" : -1.9335936837452292,
+              "p10ToP90Degrees" : 3.867187420851311,
+              "rangeDegrees" : 5.888671712032,
+              "samples" : 59,
+              "sigmaDegrees" : 0.9121465394250885
+            },
+            "yaw" : {
+              "driftDegrees" : 5.910640802053926,
+              "medianDegrees" : -60.249023536601605,
+              "p10ToP90Degrees" : 6.2622077141074115,
+              "rangeDegrees" : 16.259767338119346,
+              "samples" : 59,
+              "sigmaDegrees" : 2.834177470714978
+            }
+          },
+          "intendedDeltaDegrees" : -3.691406152619539,
+          "leakageFailed" : false,
+          "leakageRatio" : 15.666667100329482,
+          "problems" : [
+            "movement too small: 3.7° < required 10.0° (floor 10°, 5× noise 1.0°)"
+          ],
+          "referenceNoiseDegrees" : 1.0424530748961007,
+          "referenceSamples" : 29,
+          "referenceStats" : {
+            "pitch" : {
+              "driftDegrees" : 6.086425805545408,
+              "medianDegrees" : 0.43945311721857744,
+              "p10ToP90Degrees" : 6.767578533438537,
+              "rangeDegrees" : 7.822266036107464,
+              "samples" : 29,
+              "sigmaDegrees" : 1.8242930392937768
+            },
+            "roll" : {
+              "driftDegrees" : 1.7578124421938834,
+              "medianDegrees" : 1.7578124688743098,
+              "p10ToP90Degrees" : 2.4609375684818247,
+              "rangeDegrees" : 2.8125000782649425,
+              "samples" : 29,
+              "sigmaDegrees" : 1.0424530748961007
+            },
+            "yaw" : {
+              "driftDegrees" : 1.5380859236052342,
+              "medianDegrees" : -2.416992211403242,
+              "p10ToP90Degrees" : 2.065429674939698,
+              "rangeDegrees" : 2.37304677428338,
+              "samples" : 29,
+              "sigmaDegrees" : 0.9121462229738864
+            }
+          },
+          "requiredMovementDegrees" : 10,
+          "usable" : false
+        },
+        {
+          "deltaDegrees" : {
+            "pitch" : 18.720704986642453,
+            "roll" : -2.7246093107469243,
+            "yaw" : -55.349118396794395
+          },
+          "enoughMovement" : false,
+          "holdFrames" : 59,
+          "holdSamples" : 59,
+          "holdSpreadDegrees" : 0.3909199228642378,
+          "holdStats" : {
+            "pitch" : {
+              "driftDegrees" : 4.658203528100682,
+              "medianDegrees" : 27.15820500799387,
+              "p10ToP90Degrees" : 5.097657045525654,
+              "rangeDegrees" : 8.61327835473628,
+              "samples" : 59,
+              "sigmaDegrees" : 1.824293078850179
+            },
+            "roll" : {
+              "driftDegrees" : 2.0214844512632473,
+              "medianDegrees" : -0.26367187566723177,
+              "p10ToP90Degrees" : 2.0214843979023946,
+              "rangeDegrees" : 4.042968689083083,
+              "samples" : 59,
+              "sigmaDegrees" : 0.3909199228642378
+            },
+            "yaw" : {
+              "driftDegrees" : 2.2631831814837255,
+              "medianDegrees" : -59.3920875127643,
+              "p10ToP90Degrees" : 2.570801241322762,
+              "rangeDegrees" : 6.240238410642064,
+              "samples" : 59,
+              "sigmaDegrees" : 1.042456081182518
+            }
+          },
+          "intendedDeltaDegrees" : -2.7246093107469243,
+          "leakageFailed" : false,
+          "leakageRatio" : 20.314515618248766,
+          "problems" : [
+            "movement too small: 2.7° < required 10.0° (floor 10°, 5× noise 0.3°)"
+          ],
+          "referenceNoiseDegrees" : 0.2606130709420237,
+          "referenceSamples" : 29,
+          "referenceStats" : {
+            "pitch" : {
+              "driftDegrees" : 1.450195156087215,
+              "medianDegrees" : 8.437500021351417,
+              "p10ToP90Degrees" : 2.285155900043656,
+              "rangeDegrees" : 4.833983995919661,
+              "samples" : 29,
+              "sigmaDegrees" : 0.6515325191294586
+            },
+            "roll" : {
+              "driftDegrees" : 0.7031250729270884,
+              "medianDegrees" : 2.4609374350796926,
+              "p10ToP90Degrees" : 1.7578123621526043,
+              "rangeDegrees" : 2.4609376485231045,
+              "samples" : 29,
+              "sigmaDegrees" : 0.2606130709420237
+            },
+            "yaw" : {
+              "driftDegrees" : 2.0654295682179917,
+              "medianDegrees" : -4.042969115969907,
+              "p10ToP90Degrees" : 4.174804573555846,
+              "rangeDegrees" : 6.855468980791437,
+              "samples" : 29,
+              "sigmaDegrees" : 1.4985261863830428
+            }
+          },
+          "requiredMovementDegrees" : 10,
+          "usable" : false
+        }
+      ]
+    },
+    "yaw" : {
+      "axis" : "yaw",
+      "framesMirrored" : false,
+      "invertNeeded" : false,
+      "outcome" : "determined",
+      "rawVisionSign" : 1,
+      "reasons" : [
+
+      ],
+      "repetitions" : [
+        {
+          "deltaDegrees" : {
+            "pitch" : -16.391601941931643,
+            "roll" : -18.500977053991203,
+            "yaw" : 65.96191734213556
+          },
+          "enoughMovement" : true,
+          "holdFrames" : 60,
+          "holdSamples" : 60,
+          "holdSpreadDegrees" : 4.0395071881438,
+          "holdStats" : {
+            "pitch" : {
+              "driftDegrees" : 3.8891596591635675,
+              "medianDegrees" : -12.436523700201462,
+              "p10ToP90Degrees" : 4.218749156902062,
+              "rangeDegrees" : 10.81054722252162,
+              "samples" : 60,
+              "sigmaDegrees" : 2.0197535940719025
+            },
+            "roll" : {
+              "driftDegrees" : 14.589844569546003,
+              "medianDegrees" : -16.743164585116894,
+              "p10ToP90Degrees" : 14.326171519940004,
+              "rangeDegrees" : 19.775390781764088,
+              "samples" : 60,
+              "sigmaDegrees" : 6.645639796271251
+            },
+            "yaw" : {
+              "driftDegrees" : 10.942383106994384,
+              "medianDegrees" : 63.7646516760014,
+              "p10ToP90Degrees" : 10.722659336489656,
+              "rangeDegrees" : 14.941400809428906,
+              "samples" : 60,
+              "sigmaDegrees" : 4.0395071881438
+            }
+          },
+          "intendedDeltaDegrees" : 65.96191734213556,
+          "leakageFailed" : false,
+          "leakageRatio" : 0.28047967371883886,
+          "problems" : [
+
+          ],
+          "referenceNoiseDegrees" : 3.648585999474753,
+          "referenceSamples" : 45,
+          "referenceStats" : {
+            "pitch" : {
+              "driftDegrees" : 2.7685548545884924,
+              "medianDegrees" : 3.9550782417301824,
+              "p10ToP90Degrees" : 3.5156251511920313,
+              "rangeDegrees" : 5.185546745826617,
+              "samples" : 45,
+              "sigmaDegrees" : 1.5636796914569508
+            },
+            "roll" : {
+              "driftDegrees" : 1.757812455534097,
+              "medianDegrees" : 1.7578124688743098,
+              "p10ToP90Degrees" : 2.6367186766310384,
+              "rangeDegrees" : 3.6914064727846565,
+              "samples" : 45,
+              "sigmaDegrees" : 1.0424530748961007
+            },
+            "yaw" : {
+              "driftDegrees" : 6.877441699351369,
+              "medianDegrees" : -2.1972656661341667,
+              "p10ToP90Degrees" : 7.294922071329589,
+              "rangeDegrees" : 9.36035163954758,
+              "samples" : 45,
+              "sigmaDegrees" : 3.648585999474753
+            }
+          },
+          "requiredMovementDegrees" : 18.242929997373764,
+          "usable" : true
+        },
+        {
+          "deltaDegrees" : {
+            "pitch" : -10.810547115799913,
+            "roll" : -10.810546795634798,
+            "yaw" : 72.04833893217359
+          },
+          "enoughMovement" : true,
+          "holdFrames" : 60,
+          "holdSamples" : 60,
+          "holdSpreadDegrees" : 1.433372048406732,
+          "holdStats" : {
+            "pitch" : {
+              "driftDegrees" : 1.625977118010077,
+              "medianDegrees" : -7.910156483460365,
+              "p10ToP90Degrees" : 2.0654295682179917,
+              "rangeDegrees" : 6.591796998402499,
+              "samples" : 60,
+              "sigmaDegrees" : 0.6515331520318628
+            },
+            "roll" : {
+              "driftDegrees" : 3.8232421438140065,
+              "medianDegrees" : -7.822265609220641,
+              "p10ToP90Degrees" : 3.691406045897833,
+              "rangeDegrees" : 6.416015463366463,
+              "samples" : 60,
+              "sigmaDegrees" : 1.237914064794625
+            },
+            "yaw" : {
+              "driftDegrees" : 4.262697155342863,
+              "medianDegrees" : 69.52148344813581,
+              "p10ToP90Degrees" : 3.6035121834503485,
+              "rangeDegrees" : 19.775392062424558,
+              "samples" : 60,
+              "sigmaDegrees" : 1.433372048406732
+            }
+          },
+          "intendedDeltaDegrees" : 72.04833893217359,
+          "leakageFailed" : false,
+          "leakageRatio" : 0.15004575089478436,
+          "problems" : [
+
+          ],
+          "referenceNoiseDegrees" : 0.4560732697125441,
+          "referenceSamples" : 30,
+          "referenceStats" : {
+            "pitch" : {
+              "driftDegrees" : 2.8564454353435256,
+              "medianDegrees" : 2.9003906323395494,
+              "p10ToP90Degrees" : 4.702148538333722,
+              "rangeDegrees" : 6.328125229456974,
+              "samples" : 30,
+              "sigmaDegrees" : 1.4985265028342458
+            },
+            "roll" : {
+              "driftDegrees" : 2.0214843979023946,
+              "medianDegrees" : 2.9882811864141563,
+              "p10ToP90Degrees" : 2.4609375951622514,
+              "rangeDegrees" : 3.5156249377486195,
+              "samples" : 30,
+              "sigmaDegrees" : 0.5212267747864514
+            },
+            "yaw" : {
+              "driftDegrees" : 3.6035155985449325,
+              "medianDegrees" : -2.52685548403778,
+              "p10ToP90Degrees" : 6.811523757114987,
+              "rangeDegrees" : 10.06347671247467,
+              "samples" : 30,
+              "sigmaDegrees" : 0.4560732697125441
+            }
+          },
+          "requiredMovementDegrees" : 15,
+          "usable" : true
+        }
+      ]
+    }
+  },
+  "stats" : {
+    "deliveryMs" : {
+      "count" : 899,
+      "max" : 72.79383300192421,
+      "mean" : 62.8141281112837,
+      "p95" : 65.05074999586213
+    },
+    "facePresentFraction" : 1,
+    "fpsMean" : 29.99669635493723,
+    "frameCount" : 899,
+    "frameIntervalMs" : {
+      "count" : 898,
+      "max" : 33.34000000177184,
+      "mean" : 33.3370044543391,
+      "p95" : 33.34000000177184
+    },
+    "meanQuality" : 0.862267843641349,
+    "notes" : [
+
+    ],
+    "sufficient" : true,
+    "totalMs" : {
+      "count" : 899,
+      "max" : 90.0012499987497,
+      "mean" : 80.65825033263212,
+      "p95" : 83.13537499634549
+    },
+    "visionMs" : {
+      "count" : 899,
+      "max" : 31.840666000789497,
+      "mean" : 17.805955529454977,
+      "p95" : 21.336999998311512
+    },
+    "windowSeconds" : 30
+  }
+}
