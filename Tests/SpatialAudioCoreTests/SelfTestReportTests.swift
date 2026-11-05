@@ -139,20 +139,28 @@ import Foundation
         #expect(!text.contains("NaN") && !text.lowercased().contains("infinity"))
     }
 
-    /// The report is numbers and short strings only: every JSON leaf is a number, bool or string, no
-    /// array is long (a pixel buffer or per-frame dump would be), and the file is small.
+    /// The report is numbers and short strings only: every JSON leaf is a number, bool or string, no array is long (a pixel
+    /// buffer or an image dump would be), and the file is small. The ONE exception is `frameSeries` (Step 2e, asked for by
+    /// Sanjai): its columns hold one number, bool or null per frame, at most `maxSeriesRows` of them; null is allowed there
+    /// and nowhere else.
     @Test func reportContainsOnlyNumbersAndShortStrings() throws {
         let data = try sample().jsonData()
-        #expect(data.count < 100_000)       // about 46 KB with the 31-frame evidence window; it was 9 KB before Step 2d
-        func walk(_ any: Any, depth: Int = 0) {
+        #expect(data.count < 400_000)       // about 210 KB with the per-frame series (1400 frames x 9 columns, pretty-printed); 46 KB before Step 2e
+        let maxSeriesRows = 5_000           // a 47 s run at 30 fps has about 1400 frames; a 640x480 pixel buffer would have 307200
+        func walk(_ any: Any, inSeries: Bool = false, key: String = "") {
             switch any {
-            case let d as [String: Any]: for (_, v) in d { walk(v, depth: depth + 1) }
+            case let d as [String: Any]: for (k, v) in d { walk(v, inSeries: inSeries || k == "frameSeries", key: k) }
             case let a as [Any]:
-                #expect(a.count <= 40, "array of \(a.count) items")
-                for v in a { walk(v, depth: depth + 1) }
+                if inSeries {
+                    #expect(a.count <= maxSeriesRows, "series column \(key) has \(a.count) rows")
+                    for v in a { #expect(v is NSNumber || v is NSNull || v is String, "series column \(key): leaf \(type(of: v))") }
+                } else {
+                    #expect(a.count <= 40, "array \(key) of \(a.count) items")
+                    for v in a { walk(v, inSeries: false, key: key) }
+                }
             case let s as String: #expect(s.count < 600)
             case is NSNumber: break
-            default: Issue.record("unexpected JSON leaf type \(type(of: any))")
+            default: Issue.record("unexpected JSON leaf type \(type(of: any)) under \(key)")
             }
         }
         walk(try JSONSerialization.jsonObject(with: data))

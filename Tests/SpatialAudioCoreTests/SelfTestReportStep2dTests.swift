@@ -9,9 +9,9 @@ import Foundation
         SelfTestAnalyzer.analyze(simulateSession(), context: testContext(simulated: simulated))
     }
 
-    @Test func schemaVersionTwoWithQualityGroupsThatSumToOne() throws {
+    @Test func schemaVersionThreeWithQualityGroupsThatSumToOne() throws {
         let r = report()
-        #expect(r.schemaVersion == 2)
+        #expect(r.schemaVersion == 3)
         let groups = try #require(r.qualityByPhase)
         let names = groups.map(\.name)
         for needle in ["statistics window (hold + rest)", "baseline", "hold: turn LEFT", "hold: look UP", "hold: tilt RIGHT EAR", "rest",
@@ -81,7 +81,7 @@ import Foundation
         let back = try SelfTestReport.decode(data)
         #expect(back == r)
         let text = String(decoding: data, as: UTF8.self)
-        #expect(!text.lowercased().contains("base64") && !text.contains("\"image") && !text.contains("jpeg") && text.count < 150_000)
+        #expect(!text.lowercased().contains("base64") && !text.contains("\"image") && !text.contains("jpeg") && text.count < 400_000)
         func walk(_ o: Any, _ visit: (Any) -> Void) {
             visit(o)
             if let d = o as? [String: Any] { d.values.forEach { walk($0, visit) } } else if let a = o as? [Any] { a.forEach { walk($0, visit) } }

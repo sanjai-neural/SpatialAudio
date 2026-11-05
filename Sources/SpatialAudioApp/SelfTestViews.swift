@@ -450,9 +450,10 @@ struct CoachBars: View {
 
     private func row(_ axis: RotationAxis, _ value: Double) -> some View {
         let instructed = feedback.instructedAxis == axis
-        let flagged = feedback.verdict == .otherAxisMoving && feedback.worstOtherAxis == axis
+        let flagged = feedback.flaggedAxes.contains(axis)          // every wrong axis over its limit, not only the worst one
         return HStack(spacing: 8) {
             Text(axis.rawValue.uppercased()).font(.system(.caption, design: .monospaced).bold()).frame(width: 44, alignment: .leading)
+                .foregroundStyle(flagged ? Color.orange : Color.primary)
             GeometryReader { geo in
                 let w = geo.size.width
                 ZStack(alignment: .leading) {
@@ -467,7 +468,8 @@ struct CoachBars: View {
                 }
             }
             .frame(height: 12)
-            Text(String(format: "%3.0f°", value)).font(.system(.caption, design: .monospaced)).frame(width: 40, alignment: .trailing)
+            Text(String(format: "%3.0f°", value)).font(.system(.caption, design: .monospaced).weight(flagged ? .bold : .regular))
+                .foregroundStyle(flagged ? Color.orange : Color.primary).frame(width: 40, alignment: .trailing)
         }
     }
 

@@ -18,6 +18,8 @@ public struct QualityWindowSummary: Codable, Equatable, Sendable {
     public var limitingFractions: [String: Double]
     /// The same, counting only frames whose quality was below the recovery threshold (empty when there were none).
     public var limitingFractionsWhenLow: [String: Double]
+    /// Median quality (nil in reports written before Step 2e).
+    public var medianQuality: Double? = nil
 }
 
 public enum QualityAnalyzer {
@@ -38,7 +40,8 @@ public enum QualityAnalyzer {
             minQuality: frames.map(\.qualityOverall).min() ?? 0,
             fractionBelowLossThreshold: Double(frames.filter { $0.qualityOverall < gate.lossBelow }.count) / n,
             fractionBelowRecoverThreshold: Double(low.count) / n,
-            limitingFractions: fractions(frames), limitingFractionsWhenLow: fractions(low))
+            limitingFractions: fractions(frames), limitingFractionsWhenLow: fractions(low),
+            medianQuality: RobustStats.median(frames.map(\.qualityOverall)))
     }
 }
 

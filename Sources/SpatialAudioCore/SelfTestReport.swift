@@ -180,7 +180,8 @@ public struct SelfTestContext: Sendable {
 
 /// Numbers and short strings only. No images or video frames exist in, or are reachable from, this type.
 public struct SelfTestReport: Codable, Equatable, Sendable {
-    public var schemaVersion = 2
+    /// 1: before Step 2d. 2: Step 2d (quality groups, baselines, step evidence). 3: Step 2e (per-phase records, per-frame series).
+    public var schemaVersion = 3
     public var createdAt: String
     public var inputSource: String
     public var lighting: LightingTag
@@ -191,6 +192,10 @@ public struct SelfTestReport: Codable, Equatable, Sendable {
     public var stats: StatsReport
     /// Which tracking-quality component was limiting, and for what fraction of frames, per group of phases (Step 2d).
     public var qualityByPhase: [QualityWindowSummary]? = nil
+    /// Whole-phase statistics for every phase that started: box height, quality, limiting component, tracker-state seconds (Step 2e).
+    public var phases: [PhaseRecord]? = nil
+    /// Numbers-only time series of every frame of the run (Step 2e). In the JSON file only; the markdown just points to it.
+    public var frameSeries: FrameSeries? = nil
     public var cameraRelease: CameraReleaseReport?
     public var greenLight: GreenLightAnswer
     /// Set only if the user confirmed "apply".
@@ -278,6 +283,8 @@ public enum SelfTestAnalyzer {
             createdAt: context.createdAt, inputSource: context.inputSource, lighting: session.lighting,
             environment: env, mappingDuringTest: context.mappingDuringTest, signs: signs, loss: loss, stats: stats,
             qualityByPhase: qualityGroups.compactMap { $0 },
+            phases: SelfTestRecorder.phaseRecords(session, gate: context.gate),
+            frameSeries: SelfTestRecorder.frameSeries(session),
             // The question is put to the user as soon as the results appear (Step 2d), so a real run starts as "not answered".
             cameraRelease: nil, greenLight: context.inputSource == "simulated" ? .notAsked : .notAnswered, appliedMapping: nil,
             config: SelfTestConfigUsed(signs: config.signs, loss: config.loss, machine: context.machine,
@@ -439,20 +446,43 @@ extension SelfTestReport {
         L.append("| Total (sample timestamp → pose ready) | \(ms(stats.totalMs)) |")
         for n in stats.notes { L.append("- note: \(n)") }
         L.append("")
+        func top(_ d: [String: Double], _ n: Int = 4) -> String {
+            let items = d.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(n)
+            return items.isEmpty ? "—" : items.map { String(format: "%@ %.0f%%", $0.key, $0.value * 100) }.joined(separator: ", ")
+        }
         if let groups = qualityByPhase, !groups.isEmpty {
             L.append("## 4. Tracking quality: which component limited it")
             L.append("Per group of phases: share of frames in which each component was the weakest (\"none\" = all components 1). \"Low\" = quality below the recovery threshold. Gate: lose below \(String(format: "%.2f", config.gate?.lossBelow ?? config.machine.minConfidence)) for \(String(format: "%.2f", config.gate?.lossDwell ?? 0)) s, recover at or above \(String(format: "%.2f", config.gate?.recoverAbove ?? config.machine.minConfidence)) for \(String(format: "%.2f", config.gate?.recoverDwell ?? 0)) s.")
             L.append("")
             L.append("| Group | frames | mean | min | < loss | < recover | limiting component (share of frames) | limiting when low |")
             L.append("|---|---|---|---|---|---|---|---|")
-            func top(_ d: [String: Double]) -> String {
-                let items = d.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(4)
-                return items.isEmpty ? "—" : items.map { String(format: "%@ %.0f%%", $0.key, $0.value * 100) }.joined(separator: ", ")
-            }
             for g in groups {
                 L.append(String(format: "| %@ | %d | %.2f | %.2f | %.0f%% | %.0f%% | %@ | %@ |", g.name, g.frames, g.meanQuality, g.minQuality,
                                 g.fractionBelowLossThreshold * 100, g.fractionBelowRecoverThreshold * 100, top(g.limitingFractions), top(g.limitingFractionsWhenLow)))
             }
+            L.append("")
+        }
+        if let records = phases, !records.isEmpty {
+            L.append("### Per phase, whole phase, in run order")
+            L.append("Every phase on its own (the groups above pool the repetitions). Box h = face-box height as a fraction of the frame height (with the default quality settings the size score is 0 at \(String(format: "%.2f", TrackingQualityConfig().sizeZero)) and 1 at \(String(format: "%.2f", TrackingQualityConfig().sizeFull)); the settings in effect are not recorded). \"< loss\" / \"< recover\" = share of frames with quality strictly below the gate's thresholds. State seconds add up to the phase length: a frame's state is taken to hold until the next frame arrives.")
+            L.append("")
+            L.append("| # | phase | t (s) | frames | box h min / med / max | quality min / med | < loss | < recover | limiting (top 2) | locked / holding / decaying / static (s) |")
+            L.append("|---|---|---|---|---|---|---|---|---|---|")
+            for p in records {
+                let box = p.boxHeight.map { String(format: "%.3f / %.3f / %.3f", $0.min, $0.median, $0.max) } ?? "—"
+                let q = p.quality
+                let s = p.stateSeconds
+                L.append(String(format: "| %d | %@ | %.1f–%.1f | %@ | %@ | %@ | %@ | %@ | %@ | %.2f / %.2f / %.2f / %.2f |",
+                                p.index, p.name, p.startSeconds, p.endSeconds, q.map { String($0.frames) } ?? "0", box,
+                                q.map { String(format: "%.2f / %.2f", $0.minQuality, $0.medianQuality ?? $0.minQuality) } ?? "—",
+                                q.map { String(format: "%.0f%%", $0.fractionBelowLossThreshold * 100) } ?? "—",
+                                q.map { String(format: "%.0f%%", $0.fractionBelowRecoverThreshold * 100) } ?? "—",
+                                q.map { top($0.limitingFractions, 2) } ?? "—", s.locked, s.holding, s.decaying, s.staticState))
+            }
+            L.append("")
+        }
+        if let series = frameSeries {
+            L.append("Per-frame series: \(series.count) frames (seconds from run start, phase, raw Vision yaw / pitch / roll in degrees, face-box height, quality, tracker state, watchdog flag) are stored column by column in the JSON file under `frameSeries`; they are not repeated here.")
             L.append("")
         }
         L.append("## 5. Camera release")

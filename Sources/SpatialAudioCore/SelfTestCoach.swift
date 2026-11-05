@@ -10,8 +10,13 @@ public struct CoachConfig: Equatable, Sendable {
     public var tooFarFraction = 1.5
     /// Another axis moving more than this fraction of the instructed one is flagged. The detector's own limit is 0.6.
     public var otherAxisWarnRatio = 0.5
-    /// The leakage warning only applies once the instructed move is at least this fraction of the target.
+    /// The ratio warning above only applies once the instructed move is at least this fraction of the target.
     public var otherAxisCheckFromFraction = 0.5
+    /// Step 2e: ANY non-instructed axis further than this from the starting pose is flagged, even before the instructed axis
+    /// has moved at all. The 14:58 real run held yaw at -60 and pitch at +27 degrees during the roll holds while roll moved
+    /// 3 degrees; the ratio rule stayed silent because it waits for the instructed axis to reach half its target (10 degrees
+    /// for roll). UNTUNED placeholder (15 degrees was proposed by Sanjai, not derived from data).
+    public var otherAxisLimitDegrees = 15.0
     /// Live values are medians of the frames of this many seconds.
     public var recentSeconds = 0.3
     public var minimumRecentSamples = 4
@@ -40,6 +45,9 @@ public struct CoachFeedback: Equatable, Sendable {
     /// |current - reference| per axis, degrees; nil when there is no usable face / reference.
     public var deviationDegrees: AngleTriple?
     public var worstOtherAxis: RotationAxis?
+    /// Every non-instructed axis that is currently over a limit (the UI draws these bars flagged). Empty unless the verdict is
+    /// `.otherAxisMoving`.
+    public var flaggedAxes: [RotationAxis] = []
 }
 
 public enum SelfTestCoach {
@@ -86,8 +94,9 @@ public enum SelfTestCoach {
 
     static func hold(axis: RotationAxis, target: Double, reference: [VisionFaceAngles], recent: [VisionFaceAngles],
                      config c: CoachConfig) -> CoachFeedback {
-        func fb(_ v: CoachVerdict, _ msg: String, dev: AngleTriple? = nil, worst: RotationAxis? = nil) -> CoachFeedback {
-            CoachFeedback(verdict: v, message: msg, instructedAxis: axis, targetDegrees: target, deviationDegrees: dev, worstOtherAxis: worst)
+        func fb(_ v: CoachVerdict, _ msg: String, dev: AngleTriple? = nil, worst: RotationAxis? = nil, flagged: [RotationAxis] = []) -> CoachFeedback {
+            CoachFeedback(verdict: v, message: msg, instructedAxis: axis, targetDegrees: target, deviationDegrees: dev, worstOtherAxis: worst,
+                          flaggedAxes: flagged)
         }
         guard recent.count >= c.minimumRecentSamples else { return fb(.noFace, "I can't see your face — look toward the camera.") }
         guard !reference.isEmpty else { return fb(.noFace, "No starting position recorded yet.") }
@@ -99,11 +108,17 @@ public enum SelfTestCoach {
         let d = dev[axis]
         let others = RotationAxis.allCases.filter { $0 != axis }
         let worst = others.max { dev[$0] < dev[$1] }!
-        let ratio = d > 1e-9 ? dev[worst] / d : (dev[worst] > 1 ? 999 : 0)
 
-        if d >= c.otherAxisCheckFromFraction * target, ratio > c.otherAxisWarnRatio {
-            return fb(.otherAxisMoving, String(format: "%@ is moving too (%.0f°). Move ONLY %@ and keep the rest of your head still.",
-                                               worst.rawValue.capitalized, dev[worst], axis.rawValue), dev: dev, worst: worst)
+        // Another axis is wrong if it is beyond the absolute limit (at any time, even before the instructed axis has moved)
+        // or, once the instructed move is underway, if it moves more than a fraction of the instructed one.
+        let underway = d >= c.otherAxisCheckFromFraction * target
+        let flagged = others.filter { o in
+            dev[o] > c.otherAxisLimitDegrees || (underway && dev[o] > c.otherAxisWarnRatio * d)
+        }
+        if let culprit = flagged.max(by: { dev[$0] < dev[$1] }) {
+            return fb(.otherAxisMoving, String(format: "You are %@ (%.0f°) instead of %@. %@",
+                                               doing(culprit), dev[culprit], insteadOf(axis), hint(axis)),
+                      dev: dev, worst: culprit, flagged: flagged)
         }
         if d > c.tooFarFraction * target {
             return fb(.tooFar, String(format: "Too far (%.0f°, aim for about %.0f°) — come back a little.", d, target), dev: dev, worst: worst)
@@ -112,6 +127,32 @@ public enum SelfTestCoach {
             return fb(.good, String(format: "Good — %.0f° (target about %.0f°). Hold it here, keep still.", d, target), dev: dev, worst: worst)
         }
         return fb(.tooSmall, String(format: "A bit more: %.0f° so far, aim for about %.0f°.", d, target), dev: dev, worst: worst)
+    }
+
+    /// What the person is doing when this axis is the one that moves (named by the MOTION, never by direction: the test must not
+    /// know the sign).
+    private static func doing(_ a: RotationAxis) -> String {
+        switch a {
+        case .yaw: "turning your head"
+        case .pitch: "nodding"
+        case .roll: "tilting your head sideways"
+        }
+    }
+
+    private static func insteadOf(_ a: RotationAxis) -> String {
+        switch a {
+        case .yaw: "just turning it"
+        case .pitch: "just tipping it back"
+        case .roll: "just tilting it"
+        }
+    }
+
+    private static func hint(_ a: RotationAxis) -> String {
+        switch a {
+        case .yaw: "Turn only: chin level, ears level."
+        case .pitch: "Tip back only: chin up, nose straight ahead, ears level."
+        case .roll: "Tilt only: right ear toward your right shoulder, nose still pointing at the screen."
+        }
     }
 
     static func rest(reference: [VisionFaceAngles], recent: [VisionFaceAngles], config c: CoachConfig) -> CoachFeedback {
