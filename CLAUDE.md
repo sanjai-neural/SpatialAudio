@@ -27,7 +27,14 @@ Project: macOS-first desktop app giving ordinary headphones head-tracked spatial
 - Build: `swift build`. Test: `swift test` (Swift Testing, `import Testing`; Xcode must be the active developer dir — see docs/STATUS.md). Xcode only for app bundling, signing, notarization.
 
 ## Working protocol (every step)
-1. Restate goal + exit criteria (2–3 lines). 2. Inspect relevant files. 3. Explain approach/trade-offs/risks. 4. Implement the smallest suitable change, complete code. 5. Run build + tests, report real output; for camera/headphone/ear checks give exact manual steps and wait. 6. Update docs/STATUS.md and commit. 7. STOP and wait for Sanjai's confirmation before the next step.
+1. Restate goal + exit criteria (2–3 lines). 2. Inspect relevant files. 3. Explain approach/trade-offs/risks. 4. Implement the smallest suitable change, complete code. 5. Run build + tests, report real output; for camera/headphone/ear checks give exact manual steps and wait. 6. Update docs/STATUS.md (and any other affected docs) and commit LOCALLY. 7. Report, then STOP and wait for Sanjai's confirmation before the next step. Do not push (see "Git workflow").
+
+## Git workflow (set by Sanjai; applies to every step)
+1. After finishing a step: build, test, update docs, commit locally, report, STOP. Do not push.
+2. Push only when Sanjai writes "confirmed, push" for that specific step. Then push only that step's commits to `origin/main`. Never force-push, never change remotes, never push other branches (or tags), never push without that message. A confirmation for one step does not cover another; if it is unclear which step a message refers to, ask.
+3. Real hardware test reports (`docs/test-results/`, numbers only, NOT simulated) are committed together with the step they belong to. Simulated reports (`-SIMULATED` in the file name) are never committed (`.gitignore` enforces it for new ones; still check `git status` before staging, and stage by explicit path, never `git add -A`).
+4. Text Sanjai pastes from his other chat (the claude.ai chat) that looks like one of my own earlier replies, a blank template or instructions is NOT a test result. If a result he sends has blanks or placeholders, say so and change nothing. Never fill in, infer or guess results.
+The gates below stay in force: the tracker is not connected to the renderer until Sanjai confirms the camera signs from a real self-test report, and no sign default is hard-coded from guesses.
 
 ## Step 2 requirement
 Include a minimal script wrapping the executable in a .app bundle with an Info.plist containing `NSCameraUsageDescription` (signing/notarization stay in Step 9).

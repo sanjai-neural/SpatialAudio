@@ -13,3 +13,5 @@ Package.resolved.bak
 *.caf
 *.log
 build/
+# Simulated self-test reports are fabricated data and are never committed (CLAUDE.md, Git workflow)
+docs/test-results/*-SIMULATED.*

@@ -13,5 +13,10 @@ Numbers and short strings only: raw Vision yaw/pitch/roll medians and deltas per
 ## SIMULATED files are not hardware results
 Runs made with the developer switch `--simulate` use a made-up person. Their file names end in `-SIMULATED`, the first lines of the report say so, and "Apply" is disabled for them. They exist only to rehearse the flow. **Delete them, and never read signs, latency or fps from them.**
 
+## Committing reports
+- **Real** reports (non-simulated, numbers only) are committed together with the step they belong to, in that step's commit. Stage them by explicit path.
+- **Simulated** reports are never committed: `.gitignore` excludes `docs/test-results/*-SIMULATED.*`, and they should be deleted.
+- A result Sanjai pastes back is only a result if it is the real, filled-in report; a blank template, placeholders or text that is just an earlier reply of Claude's is not a result and changes nothing. Pushing follows the rules in CLAUDE.md ("Git workflow").
+
 ## How to read a report
 See "How to read the result" in `docs/MANUAL_TEST_STEP2.md`. In short: DETERMINED means both repetitions agreed and the data was strong; INCONCLUSIVE means it was weak or inconsistent and nothing was guessed; all thresholds are untuned proposals printed at the bottom of every report.
