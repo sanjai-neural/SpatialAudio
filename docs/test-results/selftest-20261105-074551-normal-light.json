@@ -1,0 +1,297 @@
+{
+  "assumptions" : [
+    "Signs assume each move was performed in the instructed direction; the test cannot see which way you actually moved.",
+    "Angles are RAW Vision values (VNFaceObservation yaw\/pitch\/roll, revision 3) before any sign mapping.",
+    "All thresholds are untuned proposals; the values used are listed in this report.",
+    "Latency excludes any delay before the camera sample timestamp.",
+    "Release check proves the capture session stopped; whether the green camera light is off is a visual check."
+  ],
+  "cameraRelease" : {
+    "callbacksAfterStop" : 0,
+    "inputsAfterStop" : 0,
+    "isRunningAfterStop" : false,
+    "outputsAfterStop" : 0,
+    "secondsSinceStop" : 1.2320213750026596,
+    "sessionObjectDeallocated" : true,
+    "stopNotificationsObserved" : 1,
+    "wasRunningBeforeStop" : true
+  },
+  "config" : {
+    "loss" : {
+      "frameStallWarningSeconds" : 0.15,
+      "ignoreGapFactor" : 2.5,
+      "jumpSafetyFactor" : 1.25,
+      "jumpThresholdFloorDegrees" : 10,
+      "minMeaningfulTravelDegrees" : 10,
+      "sequenceLeadInSeconds" : 1,
+      "smoothstepPeakFactor" : 1.5,
+      "timingToleranceSeconds" : 0.25
+    },
+    "machine" : {
+      "decayDuration" : 1.5,
+      "holdDuration" : 0.5,
+      "minConfidence" : 0.5,
+      "reacquireBlendDuration" : 0.25
+    },
+    "minimumStatsFrames" : 150,
+    "signs" : {
+      "magnitudeAgreementRatio" : 0.5,
+      "maxHoldSpreadRatio" : 0.4,
+      "maxLeakageRatio" : 0.6,
+      "minFacePresentFraction" : 0.6,
+      "minHoldSamples" : 15,
+      "minMovementDegrees" : {
+        "pitch" : 10,
+        "roll" : 10,
+        "yaw" : 15
+      },
+      "minReferenceSamples" : 10,
+      "noiseMultiple" : 5,
+      "requiredValidRepetitions" : 2
+    }
+  },
+  "createdAt" : "2026-11-05T07:45:51+05:30",
+  "environment" : {
+    "cameraName" : "MacBook Air Camera",
+    "capturePreset" : "640x480 (AVCaptureSession.Preset.vga640x480)",
+    "framesMirroredFraction" : 0,
+    "hardwareModel" : "Mac16,12",
+    "macOSVersion" : "Version 27.2 (Build 26B123)",
+    "videoRotationAnglesDegrees" : [
+      0
+    ],
+    "visionRevision" : 3
+  },
+  "greenLight" : "not asked",
+  "inputSource" : "camera",
+  "lighting" : "normal light",
+  "loss" : {
+    "expectedDecaySeconds" : 1.5,
+    "expectedHoldSeconds" : 0.5,
+    "expectedSequence" : [
+      "locked",
+      "holding",
+      "decaying",
+      "static",
+      "locked"
+    ],
+    "framesAnalyzed" : 300,
+    "heldPoseTravelDegrees" : 11.777999828306125,
+    "ignoredGapPairs" : 0,
+    "jumpCheckMeaningful" : true,
+    "jumpFlagged" : true,
+    "jumpThresholdDegrees" : 10,
+    "maxFrameJumpDegrees" : 16.92768861094924,
+    "maxJumpSecondsAfterCoverCue" : 2.2299423330005084,
+    "maxJumpState" : "locked",
+    "notes" : [
+
+    ],
+    "observedSequence" : [
+      "locked",
+      "holding",
+      "decaying",
+      "static",
+      "locked"
+    ],
+    "reacquirePoseTravelDegrees" : 8.16778789682241,
+    "reacquireSecondsAfterUncoverCue" : 0.8004424170030688,
+    "secondsInState" : {
+      "decaying" : 1.5000914580014069,
+      "holding" : 0.5023879580003268,
+      "lockedBeforeLoss" : 3.227703542001109,
+      "staticState" : 1.5412893339998845
+    },
+    "timeToStaticSeconds" : 2.0024794160017336,
+    "verdict" : "fail"
+  },
+  "mappingDuringTest" : {
+    "invertPitch" : false,
+    "invertRoll" : false,
+    "invertYaw" : false
+  },
+  "schemaVersion" : 1,
+  "signs" : {
+    "pitch" : {
+      "axis" : "pitch",
+      "outcome" : "inconclusive",
+      "reasons" : [
+        "only 1 of 2 repetitions usable (need 2)",
+        "repetition 2: wrong axis dominates: roll changed 16.6° vs 26.4° on pitch (limit 0.6×)"
+      ],
+      "repetitions" : [
+        {
+          "deltaDegrees" : {
+            "pitch" : -27.487793918762986,
+            "roll" : 4.702148538333721,
+            "yaw" : 3.4716792871853457
+          },
+          "holdFrames" : 60,
+          "holdSamples" : 60,
+          "holdSpreadDegrees" : 1.2053360464528637,
+          "intendedDeltaDegrees" : -27.487793918762986,
+          "leakageRatio" : 0.17106314723656546,
+          "problems" : [
+
+          ],
+          "referenceNoiseDegrees" : 3.8766224761054247,
+          "referenceSamples" : 30,
+          "requiredMovementDegrees" : 19.383112380527123,
+          "usable" : true
+        },
+        {
+          "deltaDegrees" : {
+            "pitch" : -26.389161459221874,
+            "roll" : 16.61132870064413,
+            "yaw" : 14.831542766157948
+          },
+          "holdFrames" : 60,
+          "holdSamples" : 60,
+          "holdSpreadDegrees" : 1.9871768415349453,
+          "intendedDeltaDegrees" : -26.389161459221874,
+          "leakageRatio" : 0.6294754278688603,
+          "problems" : [
+            "wrong axis dominates: roll changed 16.6° vs 26.4° on pitch (limit 0.6×)"
+          ],
+          "referenceNoiseDegrees" : 2.215212843488814,
+          "referenceSamples" : 30,
+          "requiredMovementDegrees" : 11.07606421744407,
+          "usable" : false
+        }
+      ]
+    },
+    "roll" : {
+      "axis" : "roll",
+      "outcome" : "inconclusive",
+      "reasons" : [
+        "only 0 of 2 repetitions usable (need 2)",
+        "repetition 1: movement too small: 17.8° < required 67.4° (floor 10°, 5× noise 13.5°)",
+        "repetition 2: movement too small: 7.3° < required 10.0° (floor 10°, 5× noise 0.3°)"
+      ],
+      "repetitions" : [
+        {
+          "deltaDegrees" : {
+            "pitch" : 25.312500917827897,
+            "roll" : 17.753907504439606,
+            "yaw" : -41.1877465349221
+          },
+          "holdFrames" : 60,
+          "holdSamples" : 60,
+          "holdSpreadDegrees" : 0.846993192576782,
+          "intendedDeltaDegrees" : 17.753907504439606,
+          "leakageRatio" : 2.319925713515323,
+          "problems" : [
+            "movement too small: 17.8° < required 67.4° (floor 10°, 5× noise 13.5°)"
+          ],
+          "referenceNoiseDegrees" : 13.486738209057009,
+          "referenceSamples" : 30,
+          "requiredMovementDegrees" : 67.43369104528504,
+          "usable" : false
+        },
+        {
+          "deltaDegrees" : {
+            "pitch" : 16.12793102675976,
+            "roll" : -7.294922071329588,
+            "yaw" : 4.042968475639671
+          },
+          "holdFrames" : 60,
+          "holdSamples" : 60,
+          "holdSpreadDegrees" : 3.1273593829139017,
+          "intendedDeltaDegrees" : -7.294922071329588,
+          "leakageRatio" : 2.2108434975810853,
+          "problems" : [
+            "movement too small: 7.3° < required 10.0° (floor 10°, 5× noise 0.3°)"
+          ],
+          "referenceNoiseDegrees" : 0.3257665760159314,
+          "referenceSamples" : 30,
+          "requiredMovementDegrees" : 10,
+          "usable" : false
+        }
+      ]
+    },
+    "yaw" : {
+      "axis" : "yaw",
+      "outcome" : "inconclusive",
+      "reasons" : [
+        "only 0 of 2 repetitions usable (need 2)",
+        "repetition 1: movement too small: 37.0° < required 70.4° (floor 15°, 5× noise 14.1°)",
+        "repetition 2: wrong axis dominates: roll changed 57.3° vs 57.8° on yaw (limit 0.6×)"
+      ],
+      "repetitions" : [
+        {
+          "deltaDegrees" : {
+            "pitch" : -17.006835500288773,
+            "roll" : -14.589844569546,
+            "yaw" : 37.00195474831264
+          },
+          "holdFrames" : 60,
+          "holdSamples" : 60,
+          "holdSpreadDegrees" : 2.1500618700245187,
+          "intendedDeltaDegrees" : 37.00195474831264,
+          "leakageRatio" : 0.4596199205141808,
+          "problems" : [
+            "movement too small: 37.0° < required 70.4° (floor 15°, 5× noise 14.1°)"
+          ],
+          "referenceNoiseDegrees" : 14.073117223112563,
+          "referenceSamples" : 45,
+          "requiredMovementDegrees" : 70.36558611556282,
+          "usable" : false
+        },
+        {
+          "deltaDegrees" : {
+            "pitch" : -17.84179709801886,
+            "roll" : -57.34863215721012,
+            "yaw" : 57.810062448619846
+          },
+          "holdFrames" : 60,
+          "holdSamples" : 60,
+          "holdSpreadDegrees" : 6.124411755679989,
+          "intendedDeltaDegrees" : 57.810062448619846,
+          "leakageRatio" : 0.9920181665290565,
+          "problems" : [
+            "wrong axis dominates: roll changed 57.3° vs 57.8° on yaw (limit 0.6×)"
+          ],
+          "referenceNoiseDegrees" : 2.7690157379098155,
+          "referenceSamples" : 30,
+          "requiredMovementDegrees" : 15,
+          "usable" : false
+        }
+      ]
+    }
+  },
+  "stats" : {
+    "deliveryMs" : {
+      "count" : 900,
+      "max" : 66.89391599866212,
+      "mean" : 61.44287944995287,
+      "p95" : 65.34816600105842
+    },
+    "facePresentFraction" : 1,
+    "fpsMean" : 29.9966833478017,
+    "frameCount" : 900,
+    "frameIntervalMs" : {
+      "count" : 899,
+      "max" : 33.34000000177184,
+      "mean" : 33.337018909901744,
+      "p95" : 33.34000000177184
+    },
+    "meanQuality" : 0.799386078913786,
+    "notes" : [
+
+    ],
+    "sufficient" : true,
+    "totalMs" : {
+      "count" : 900,
+      "max" : 92.9157499995199,
+      "mean" : 79.14840263773334,
+      "p95" : 83.86266600064118
+    },
+    "visionMs" : {
+      "count" : 900,
+      "max" : 31.75754200128722,
+      "mean" : 17.66978785779631,
+      "p95" : 22.03416699921945
+    },
+    "windowSeconds" : 30
+  }
+}
