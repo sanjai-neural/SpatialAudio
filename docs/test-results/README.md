@@ -14,7 +14,7 @@ Numbers and short strings only: raw Vision yaw/pitch/roll medians and deltas per
 Runs made with the developer switch `--simulate` use a made-up person. Their file names end in `-SIMULATED`, the first lines of the report say so, and "Apply" is disabled for them. They exist only to rehearse the flow. **Delete them, and never read signs, latency or fps from them.**
 
 ## Committing reports
-- **Real** reports (non-simulated, numbers only) are committed on their own, by explicit path (never `git add -A`), and only when Sanjai says so (his instruction at Step 2e; the Step 2c reports were committed the same way). CLAUDE.md still says "together with the step"; that wording has not been changed.
+- **Real** reports (non-simulated, numbers only) are committed on their own, by explicit path (never `git add -A`), and only when Sanjai says so (his instruction at Step 2e; the Step 2c reports were committed the same way).
 - **Simulated** reports are never committed: `.gitignore` excludes `docs/test-results/*-SIMULATED.*`, and they should be deleted.
 - A result Sanjai pastes back is only a result if it is the real, filled-in report; a blank template, placeholders or text that is just an earlier reply of Claude's is not a result and changes nothing. Pushing follows the rules in CLAUDE.md ("Git workflow").
 

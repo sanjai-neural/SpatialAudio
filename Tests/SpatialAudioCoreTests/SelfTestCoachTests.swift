@@ -42,8 +42,8 @@ private func steady(_ yaw: Double, _ pitch: Double = 0, _ roll: Double = 0, n: I
         #expect(yaw(steady(8, 20, 0)).verdict == .otherAxisMoving)
         // ... while a small leak before the move is underway is still not a warning (the ratio rule needs a move to compare with).
         #expect(yaw(steady(8, 12, 0)).verdict == .tooSmall)
-        // and it outranks "too far": fix the axis problem first
-        #expect(yaw(steady(60, 50, 0)).verdict == .otherAxisMoving)
+        // Step 2f: but once the instructed axis is past 1.5x its target, "too far" comes first (it used to be the other way round)
+        #expect(yaw(steady(60, 50, 0)).verdict == .tooFar)
     }
 
     @Test func rollLeakageIsReportedToo() {
@@ -176,6 +176,65 @@ private func steady(_ yaw: Double, _ pitch: Double = 0, _ roll: Double = 0, n: I
     }
 }
 
+@Suite struct TooFarFirstTests {
+    func feedback(_ axis: RotationAxis, target: Double = 30, reference: [VisionFaceAngles] = steady(0),
+                  recent: [VisionFaceAngles], config: CoachConfig = CoachConfig()) -> CoachFeedback {
+        SelfTestCoach.hold(axis: axis, target: target, reference: reference, recent: recent, config: config)
+    }
+
+    @Test func anOvershootIsToldTooFarEvenWhenOtherAxesAreOverTheirLimit() {
+        for recent in [steady(60, 50, 0), steady(60, 30, 30), steady(46, 16, 0), steady(70, 0, 40)] {
+            let f = feedback(.yaw, recent: recent)
+            #expect(f.verdict == .tooFar && f.flaggedAxes.isEmpty, "\(f.verdict): \(f.message)")
+            #expect(f.message.hasPrefix("Too far (") && f.message.contains("aim for about 30"))
+        }
+        let roll = feedback(.roll, target: 20, recent: steady(20, 0, 45))
+        #expect(roll.verdict == .tooFar && roll.flaggedAxes.isEmpty)
+        let pitch = feedback(.pitch, target: 20, recent: steady(0, 31, 25))
+        #expect(pitch.verdict == .tooFar)
+    }
+
+    @Test func justInsideTheBandTheOtherAxisWarningStillWorks() {
+        let f = feedback(.yaw, recent: steady(44, 20, 0))                          // 44° of 30° = 1.47x: not too far yet
+        #expect(f.verdict == .otherAxisMoving && f.flaggedAxes == [.pitch])
+        #expect(feedback(.yaw, recent: steady(45.5, 20, 0)).verdict == .tooFar)    // 1.52x
+    }
+
+    @Test func theBoundaryIsStrictlyGreaterThan() throws {
+        // target 1 makes `tooFarFraction * target` equal to the fraction itself, so the boundary can be hit exactly (no
+        // floating-point doubt from 1.5 x 30): a move EXACTLY at the limit is not too far, the next value down is.
+        let recent = steady(45, 20, 0)
+        let measured = try #require(feedback(.yaw, target: 1, recent: recent).deviationDegrees).yaw
+        #expect(abs(measured - 45) < 1e-9)
+        var c = CoachConfig(); c.tooFarFraction = measured
+        #expect(feedback(.yaw, target: 1, recent: recent, config: c).verdict == .otherAxisMoving)   // at the limit: the other-axis rules decide
+        c.tooFarFraction = measured.nextDown
+        #expect(feedback(.yaw, target: 1, recent: recent, config: c).verdict == .tooFar)            // a hair past it: too far
+    }
+
+    @Test func theRealYawHoldsOf1458AreTooFarNotAWrongMotion() {
+        // The 14:58 report: yaw hold 1 reference (-2.2, +4.0, +1.8), hold at (+63.8, -12.4, -16.7); hold 2 reference (-2.5, +2.9, +3.0), hold at (+69.5, -7.9, -7.8).
+        // From their references roll moved 18.5° / 10.8° and pitch 16.4° / 10.8°: with the Step 2e rules (other-axis check first) hold 1
+        // would have been "You are tilting your head sideways (19°) instead of just turning it" instead of "too far".
+        let one = feedback(.yaw, reference: steady(-2.2, 4.0, 1.8), recent: steady(63.8, -12.4, -16.7))
+        let two = feedback(.yaw, reference: steady(-2.5, 2.9, 3.0), recent: steady(69.5, -7.9, -7.8))
+        #expect(one.verdict == .tooFar && two.verdict == .tooFar)
+        #expect(one.message.contains("Too far (66°") && two.message.contains("Too far (72°"))
+    }
+
+    @Test func comingBackIntoTheBandBringsTheOtherAxisWarningBack() {
+        #expect(feedback(.yaw, recent: steady(60, 20, 0)).verdict == .tooFar)
+        #expect(feedback(.yaw, recent: steady(40, 20, 0)).verdict == .otherAxisMoving)
+        #expect(feedback(.yaw, recent: steady(40, 5, 0)).verdict == .good)
+    }
+
+    @Test func aSmallMoveWithAWrongAxisIsStillCalledOut() {
+        // the Step 2e case is untouched: roll barely moved, yaw and pitch did
+        let f = feedback(.roll, target: 20, reference: steady(-2.4, 0.4, 1.8), recent: steady(-60.2, 27.2, -1.9))
+        #expect(f.verdict == .otherAxisMoving && f.flaggedAxes == [.yaw, .pitch])
+    }
+}
+
 @Suite struct RestCoachTests {
     let c = CoachConfig()
 
@@ -259,6 +318,15 @@ private func steady(_ yaw: Double, _ pitch: Double = 0, _ roll: Double = 0, n: I
         #expect(f.verdict == .otherAxisMoving && f.instructedAxis == .roll && f.targetDegrees == 20)
         #expect(f.worstOtherAxis == .yaw && f.flaggedAxes == [.yaw, .pitch])
         #expect(f.message.contains("turning your head") && f.message.contains("just tilting it"))
+    }
+
+    @Test func theLossTurnIsToldTooFarEvenIfPitchCameAlong() throws {
+        var s = SelfTestSession(script: script, lighting: .normalLight, startTime: 0)
+        let turn = script.firstIndex(of: .lossTurn)!
+        add(&s, from: script.starts[turn - 1], to: script.starts[turn], yaw: 0)
+        add(&s, from: script.starts[turn], to: script.starts[turn] + 1.5, yaw: 58, pitch: 20)          // 58° of a 25° target, pitch 20° along
+        let f = try #require(SelfTestCoach.feedback(session: s, now: script.starts[turn] + 1.5))
+        #expect(f.verdict == .tooFar && f.targetDegrees == 25)
     }
 
     @Test func restPhasesAreCoachedForStillnessAgainstTheBaseline() throws {

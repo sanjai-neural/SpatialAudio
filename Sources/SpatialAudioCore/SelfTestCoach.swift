@@ -15,7 +15,8 @@ public struct CoachConfig: Equatable, Sendable {
     /// Step 2e: ANY non-instructed axis further than this from the starting pose is flagged, even before the instructed axis
     /// has moved at all. The 14:58 real run held yaw at -60 and pitch at +27 degrees during the roll holds while roll moved
     /// 3 degrees; the ratio rule stayed silent because it waits for the instructed axis to reach half its target (10 degrees
-    /// for roll). UNTUNED placeholder (15 degrees was proposed by Sanjai, not derived from data).
+    /// for roll). UNTUNED placeholder (15 degrees was proposed by Sanjai, not derived from data). Not applied once the instructed
+    /// axis is past `tooFarFraction` x target: "too far" comes first (Step 2f).
     public var otherAxisLimitDegrees = 15.0
     /// Live values are medians of the frames of this many seconds.
     public var recentSeconds = 0.3
@@ -109,6 +110,14 @@ public enum SelfTestCoach {
         let others = RotationAxis.allCases.filter { $0 != axis }
         let worst = others.max { dev[$0] < dev[$1] }!
 
+        // Step 2f: a move that is already too big is told so FIRST. In the 14:58 real run the yaw holds (66 and 72 degrees from the
+        // starting pose, against a target of 30) also moved roll by 19 and 11 degrees and pitch by 16 and 11 degrees, so the other-axis
+        // rules would have blamed a wrong motion for what was an overshoot (whether that coupling is the head's or Vision's is not
+        // known). The advice for both is the same: come back.
+        if d > c.tooFarFraction * target {
+            return fb(.tooFar, String(format: "Too far (%.0f°, aim for about %.0f°) — come back a little.", d, target), dev: dev, worst: worst)
+        }
+
         // Another axis is wrong if it is beyond the absolute limit (at any time, even before the instructed axis has moved)
         // or, once the instructed move is underway, if it moves more than a fraction of the instructed one.
         let underway = d >= c.otherAxisCheckFromFraction * target
@@ -119,9 +128,6 @@ public enum SelfTestCoach {
             return fb(.otherAxisMoving, String(format: "You are %@ (%.0f°) instead of %@. %@",
                                                doing(culprit), dev[culprit], insteadOf(axis), hint(axis)),
                       dev: dev, worst: culprit, flagged: flagged)
-        }
-        if d > c.tooFarFraction * target {
-            return fb(.tooFar, String(format: "Too far (%.0f°, aim for about %.0f°) — come back a little.", d, target), dev: dev, worst: worst)
         }
         if d >= c.goodFromFraction * target {
             return fb(.good, String(format: "Good — %.0f° (target about %.0f°). Hold it here, keep still.", d, target), dev: dev, worst: worst)
