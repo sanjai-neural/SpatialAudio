@@ -32,6 +32,7 @@ struct HUDContent: View {
                 Divider()
                 controls
                 SelfTestLauncher(controller: model.selfTest, model: model)
+                AudioTestCard(model: AudioTestModel.shared)
                 if model.selfTest.stage == .finished {
                     SelfTestResultView(controller: model.selfTest, model: model)
                 }

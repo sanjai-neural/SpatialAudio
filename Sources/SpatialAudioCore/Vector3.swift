@@ -1,3 +1,5 @@
+import Foundation
+
 /// Minimal 3-vector. Coordinate convention for the whole project (matches
 /// AVAudioEnvironmentNode): right-handed, +X right, +Y up, forward = -Z.
 public struct Vector3: Equatable, Sendable {
@@ -14,6 +16,13 @@ public struct Vector3: Equatable, Sendable {
     public static let forward = Vector3(0, 0, -1)
     public static let up = Vector3(0, 1, 0)
     public static let right = Vector3(1, 0, 0)
+
+    /// Point at `distance` in the audio-standard direction `azimuthDegrees` (0 = straight ahead, positive = to
+    /// the RIGHT, +-180 = behind) and `elevationDegrees` (positive = up), in this frame. Also used by `Speaker`.
+    public static func direction(azimuthDegrees: Double, elevationDegrees: Double, distance: Double = 1) -> Vector3 {
+        let a = azimuthDegrees * .pi / 180, e = elevationDegrees * .pi / 180
+        return Vector3(sin(a) * cos(e), sin(e), -cos(a) * cos(e)) * distance
+    }
 
     public var length: Double { (x * x + y * y + z * z).squareRoot() }
 

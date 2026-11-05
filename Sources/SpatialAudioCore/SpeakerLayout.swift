@@ -27,8 +27,7 @@ public struct Speaker: Equatable, Sendable {
     /// coordinate frame (+X right, +Y up, forward = -Z). nil for LFE.
     public func position(distance: Double = 1) -> Vector3? {
         guard let az = azimuthDegrees, let el = elevationDegrees else { return nil }
-        let a = az * .pi / 180, e = el * .pi / 180
-        return Vector3(sin(a) * cos(e), sin(e), -cos(a) * cos(e)) * distance
+        return Vector3.direction(azimuthDegrees: az, elevationDegrees: el, distance: distance)
     }
 }
 

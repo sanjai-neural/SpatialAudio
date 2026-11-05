@@ -11,7 +11,9 @@ struct SpatialAudioApp: App {
                 .frame(minWidth: 760, minHeight: 640)
                 .task {
                     // Developer switch (see LaunchOptions): start the self-test without clicking.
-                    if let dir = LaunchOptions.current.renderDirectory {
+                    if LaunchOptions.current.audioTestSelfCheck {
+                        await AudioTestModel.shared.runSilentSelfCheck()
+                    } else if let dir = LaunchOptions.current.renderDirectory {
                         await UIRenderer.runSchedule(into: dir, model: HeadTrackingModel.shared)
                     } else if LaunchOptions.current.autorunSelfTest {
                         try? await Task.sleep(for: .milliseconds(600))
@@ -23,11 +25,14 @@ struct SpatialAudioApp: App {
     }
 }
 
-/// Ensures the camera is released when the window closes or the app quits.
+/// Ensures the camera is released and the audio test stops when the window closes or the app quits.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { HeadTrackingModel.shared.stop() }
+        MainActor.assumeIsolated {
+            HeadTrackingModel.shared.stop()
+            AudioTestModel.shared.stop()
+        }
     }
 }

@@ -13,6 +13,8 @@ import SpatialAudioCore
 ///   --mute                  no cue sounds
 ///   --results-dir=PATH      write reports there instead of docs/test-results
 ///   --render-ui=PATH        (with --simulate --autorun-selftest) render the HUD screens to PNG files there, then quit
+///   --audio-test-selfcheck  SILENT (volume 0) run of the audio listening test's real start/readout/stop path inside the
+///                           app, prints what the card would show, then quits. Opens no camera.
 struct LaunchOptions: Sendable {
     var simulate = false
     var conventions = SimulatedUser.Conventions()
@@ -23,6 +25,7 @@ struct LaunchOptions: Sendable {
     var muteCues = false
     var resultsDirectory: URL?
     var renderDirectory: URL?
+    var audioTestSelfCheck = false
 
     static let current = LaunchOptions(arguments: CommandLine.arguments)
 
@@ -34,6 +37,7 @@ struct LaunchOptions: Sendable {
             case "--autorun-selftest": autorunSelfTest = true
             case "--exit-after-selftest": exitAfterSelfTest = true
             case "--mute": muteCues = true
+            case "--audio-test-selfcheck": audioTestSelfCheck = true
             default:
                 if a.hasPrefix("--sim-flip=") {
                     for axis in a.dropFirst("--sim-flip=".count).split(separator: ",") {

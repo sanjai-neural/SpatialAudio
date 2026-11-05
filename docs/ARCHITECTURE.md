@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-Status: SpatialAudioCore is IMPLEMENTED (verified by unit tests). SpatialAudioTracking and the HUD in SpatialAudioApp are IMPLEMENTED-UNVERIFIED on hardware (Step 2; logic tested with fakes, camera not yet exercised). SpatialAudioEngine is a placeholder. Everything else below is PLANNED.
+Status: SpatialAudioCore is IMPLEMENTED (verified by unit tests). SpatialAudioTracking and the HUD in SpatialAudioApp are IMPLEMENTED-UNVERIFIED on hardware (Step 2; logic tested with fakes, camera not yet exercised). SpatialAudioEngine holds the Step 3a audio-only renderer: IMPLEMENTED and verified OFFLINE (unit tests plus manual offline rendering through AVAudioEnvironmentNode), one silent run on the live output device; **never listened to, so how it sounds is UNVERIFIED**. The renderer is NOT connected to the camera (gate: Sanjai must confirm the signs from a real self-test report first). Everything else below is PLANNED.
 
 ## Modules (Swift Package `SpatialAudio`, macOS 14+)
 ```
@@ -10,11 +10,11 @@ SpatialAudioApp ──► SpatialAudioTracking ──► SpatialAudioCore
 ```
 - **SpatialAudioCore** — pure logic, no hardware or Apple media frameworks: quaternion math, One-Euro filter, calibration, tracking state machine, speaker layouts. Unit-tested.
 - **SpatialAudioTracking** — AVFoundation capture + Vision, exposed only through the `HeadPoseProvider` protocol (pose + timestamp + confidence).
-- **SpatialAudioEngine** — `AudioSource` and `SpatialRenderer` protocols and implementations (first: AVAudioEnvironmentNode with HRTF).
+- **SpatialAudioEngine** — the spatial renderer (first: `EnvironmentRenderer` on AVAudioEnvironmentNode with HRTFHQ), the test tone, the pose pump and the scripted listening-test session. `AudioSource` / `SpatialRenderer` protocols are PLANNED for when a second source or renderer exists (Step 6 / Step 8); with one implementation they would be guesses.
 - **SpatialAudioApp** — SwiftUI shell and debug HUD. No DSP or CV logic.
 
 ## Data flow (target)
-camera → Vision → raw pose → One-Euro filter → state machine (Locked/Holding/Decaying/Static) → calibrated quaternion → lock-free latest-value slot → audio thread interpolates per block → renderer listener orientation.
+camera → Vision → raw pose → One-Euro filter → state machine (Locked/Holding/Decaying/Static) → calibrated quaternion → lock-free latest-value slot (`PoseMailbox`) → pose pump (control thread, once per audio block) interpolates → `ListenerFrame` conversion → renderer listener orientation. (Target. Step 3a runs the same chain with a SCRIPTED pose in place of the camera; see "Audio output" below. A per-block read inside a render callback is only possible with a renderer we own, Step 8.)
 
 ## Head tracking (Step 2)
 ```
@@ -52,7 +52,7 @@ HeadTracker snapshots (+ watchdog ticks)
 - **Apply.** Only after an explicit confirmation: sets the invert flags of the DETERMINED axes (inconclusive axes keep their current setting), stores them in `UserDefaults`, and resets the filter, state machine and calibration (they live in mapped space; the user must Recenter). Never applied from a SIMULATED run.
 - **Camera release evidence** is what code can prove: `AVCaptureSession.isRunning` read right after `stopRunning()` returned (it "blocks until the session object has completely stopped"), inputs/outputs removed, no sample callbacks after stop. Stop notifications and "session object freed" are INFORMATIONAL (they depend on the run loop and timing; verified on a camera-less session that they arrive only while the run loop spins). The physical green light is a visual check.
 - **Simulated user** (`SimulatedUser`, `SimulatedHeadPoseProvider`, `--simulate`): deterministic made-up person for unit tests and for rehearsing the flow without a camera. Fabricated data, labeled SIMULATED everywhere, never usable for decisions about hardware.
-- **Developer switches** (`LaunchOptions`): `--simulate`, `--sim-flip=…`, `--sim-mirrored`, `--autorun-selftest`, `--exit-after-selftest`, `--mute`, `--lighting=…`, `--results-dir=…`, `--render-ui=…` (renders the HUD to PNG in-process; used to review layout without screen-recording permission).
+- **Developer switches** (`LaunchOptions`): `--simulate`, `--sim-flip=…`, `--sim-mirrored`, `--autorun-selftest`, `--exit-after-selftest`, `--mute`, `--lighting=…`, `--results-dir=…`, `--render-ui=…` (renders the HUD to PNG in-process; used to review layout without screen-recording permission), `--audio-test-selfcheck` (SILENT run of the audio listening card's start / readout / flip / stop path, volume 0, no camera; Step 3a).
 
 ## Conventions (IMPLEMENTED, pinned by tests)
 - Right-handed; +X right, +Y up, forward = −Z (matches AVAudioEnvironmentNode).
@@ -70,6 +70,8 @@ HeadTracker snapshots (+ watchdog ticks)
 ## Open questions (to resolve with evidence, not assumption)
 - Does Vision expose head yaw/pitch/roll directly (Step 2 starts by checking SDK headers)?
 - Latency budget and whether prediction is needed (decide after Step 5 measurements).
+- How AVAudioEnvironmentNode smooths listener changes internally (step response), and the real pose-to-ear latency of the pump design (Step 5; not measured).
+- Whether a renderer we own (Step 8) should take the pose inside the render callback, and whether the render block then has to be C/Objective-C (see "Real-time rule").
 
 ## Pose handoff to the audio thread — options (checked 2026-11-04) — DECIDED and implemented: C triple buffer (`CPoseMailbox`)
 Requirement: single writer (tracking), single reader (audio callback); no locks, allocation, I/O or logging in the reader. A pose is 4 doubles (32 B) or 4 floats (16 B), too large to rely on a single atomic word, so every lock-free option needs a seqlock or triple buffer built on atomic integer operations.
@@ -82,4 +84,43 @@ Requirement: single writer (tracking), single reader (audio callback); no locks,
 | Locks (`os_unfair_lock`, even try-lock) | Yes | Violates the no-locks-in-audio-callback rule; priority-inversion risk. Rejected |
 | `OSAtomic*` | Present but deprecated in the SDK headers | Rejected |
 
-Decision (approved by Sanjai): C target with a `stdatomic.h` triple buffer, because it works at 14.0 with no dependency and is wait-free for both sides. Implemented as `Sources/CPoseMailbox` + `PoseMailbox` (Core); stress- and TSan-tested (see STATUS). The audio reader will interpolate (slerp) between the previous and latest pose per block. Still open for Step 3: whether Swift class access (ARC) is acceptable in the audio callback or the render side should hold the raw C pointer.
+Decision (approved by Sanjai): C target with a `stdatomic.h` triple buffer, because it works at 14.0 with no dependency and is wait-free for both sides. Implemented as `Sources/CPoseMailbox` + `PoseMailbox` (Core); stress- and TSan-tested (see STATUS). The audio reader will interpolate (slerp) between the previous and latest pose per block. The ARC question that was left open here is DECIDED in "Real-time rule" below.
+
+## Real-time rule (DECIDED 2026-11-05, Step 3a; checked against the macOS 27.2 SDK headers and this toolchain)
+**Question.** What may the audio render side touch: a raw C pointer to the `PoseMailbox`, or Swift class access (ARC)? And where does the listener get its pose?
+
+**Facts (each from a header or a measurement, nothing from memory).**
+1. `AVAudioEnvironmentNode` exposes the listener only as plain node properties (`listenerVectorOrientation`, `listenerAngularOrientation`, `listenerPosition`); no header text promises real-time safety. `AVAudioEngine.h` (comment on `AVAudioEngineManualRenderingBlock`) says that calling into the engine from a non-realtime thread "(e.g. for setting or getting node properties)" can make the realtime render return `AVAudioEngineManualRenderingStatusCannotDoInCurrentContext`, "because interacting with some of these properties requires synchronization between the realtime and calling threads". It does not say which properties, so the listener setters are treated as control-thread operations (not wait-free) and must not be called from a render callback.
+2. `AVAudioSourceNode` (Swift-callable, macOS 10.15+): "The block can be called on realtime or non-realtime threads ... it is the client's responsibility to handle it in a thread-safe manner." The realtime-safe variants (`initWithRealtimeSafeRenderBlock:`, `AVAudioSourceNodeRenderBlockRealtimeSafe`) are macOS 27.0+ only (our minimum is 14.0) and are marked `__SWIFT_UNAVAILABLE_MSG("Swift is not supported for use with audio realtime threads")`.
+3. Probe (`swiftc -O -wmo`, Swift 6.4.2, 2026-11-05): reading the mailbox through a `final class` wrapper, through a class stored in another class next to mutable `var` state, and through an escaping closure that captured the class produced NO `swift_retain` / `swift_release` / `swift_beginAccess` / `swift_allocObject` / `malloc` in the hot path (the reader function itself, and the closure body). ARC and allocation appeared only at setup (closure creation, `init`, `deinit`). A closure capturing only a raw-pointer struct had a 3-instruction body. This is what the optimizer did in one build configuration, not a language guarantee: debug builds, public cross-module accessors, `weak` references and a last release on the audio thread (which would `free`) all change it.
+
+**Options.**
+| Option | For | Against |
+|---|---|---|
+| A. Swift class access (`PoseMailbox` as is) on the render side | simplest; optimized build showed no runtime calls | no guarantee; debug/cross-module builds differ; Apple says Swift is not supported on realtime threads |
+| B. Raw C pointer + plain-old-data state, C functions only | ARC-free by construction; the C mailbox is already wait-free | a little more plumbing |
+| C. Whole render block in C/Objective-C | strictest reading of Apple's Swift note | duplicates quaternion math in C; build complexity |
+
+**Decision.**
+- **Step 3a has no custom code on the render thread at all.** The test tone is a pre-rendered 2 s loop (`TestTone`, generated off the audio thread) played by `AVAudioPlayerNode` with `.loops`. The "no locks, allocation, I/O or logging in the audio callback" rule is therefore met by construction: there is no callback of ours.
+- **The listener is driven by a pose pump** (`ListenerPosePump`): one tick per nominal render block (512 frames, 10.67 ms at 48 kHz) on a `.strict` timer on its own queue. Each tick reads the `PoseMailbox`, advances the `PoseInterpolator` by the measured time since the previous tick, converts with `ListenerFrame`, and sets `listenerVectorOrientation`. This is ordinary control-thread code (locks and classes are fine there). It is NOT sample-accurate; its jitter is measured and shown (live smoke run: 148 ticks, mean 10.67 ms, max 10.71 ms on an idle Mac), but not under load or thermal stress (Step 5).
+- **Rule for any future code that runs on a render thread** (Step 6 system-audio source, Step 8 own renderer): it may touch only raw C pointers, plain structs (no classes, arrays, strings, existentials), and C functions. No Swift class instance access, no closures capturing `self`, no Objective-C messaging, no logging, no allocation, no locks. The mailbox is read through its C API (`SAPoseMailboxRead`). `PoseInterpolator` and `ListenerFrame` are value types with no heap use and are written to be callable from there. One-time observation, 2026-11-05 (NOT a gate; it has to be repeated by hand): disassembling the release `SpatialAudioCore.o` and scanning for `swift_retain|release|bridgeObject*|beginAccess|endAccess|allocObject|swift_once|malloc|free|objc_*` found none in `PoseInterpolator`, `ListenerOrientation`, `ListenerMapping`, `ListenerFrame`, `ListenerGeometry` (100 functions) nor in the `Quaternion` / `Vector3` helpers they call (24 functions); only libm math calls appear. PLANNED: when the first render callback exists, add a release-build disassembly scan for `swift_retain|swift_release|swift_beginAccess|swift_allocObject|malloc|objc_*` on the functions it calls, shown to fail on a deliberately broken variant (CLAUDE.md test-the-test).
+- If a render callback must be written in Swift before Step 8, keep its Swift body to one forwarding call into C and verify the disassembly; the fallback is option C.
+
+**Consequence for "pose interpolated per audio block".** With AVAudioEnvironmentNode the finest granularity we can address is one listener update per pump tick, i.e. per nominal block, not per sample and not inside the callback. Whether the node ramps orientation changes internally is unknown (not measured).
+
+## Audio output (Step 3a) — IMPLEMENTED, verified offline; how it sounds is UNVERIFIED
+```
+ListeningTest script (Core, pure)  --30 Hz-->  PoseMailbox.publish  (producer: ScriptedScenePublisher; stands in for the tracker)
+PoseMailbox.read --> PoseInterpolator (slerp toward latest, tau = 20 ms, UNTUNED) --> ListenerMapping (flip switches) --> ListenerFrame
+   --> AVAudioEnvironmentNode.listenerVectorOrientation          (consumer: ListenerPosePump, once per block)
+AVAudioPlayerNode (mono looping noise-burst tone, position fixed in the room) --> AVAudioEnvironmentNode (outputType .headphones,
+   source renderingAlgorithm .HRTFHQ) --> main mixer --> output
+```
+- **Conversion** (`ListenerFrame.orientation`): `forward = pose.rotate(-Z)`, `up = pose.rotate(+Y)`, handed over as `AVAudio3DVectorOrientation`. Vectors are used on purpose: AVAudio's angular yaw is CLOCKWISE-positive (turn right = +, read back from the node: our left turn of 30° reads yaw = -30), the opposite of this project's yaw (+ = turn left). Pitch (+ = up) and roll (+ = right ear down) agree with ours. Feeding our yaw to `listenerAngularOrientation` would have mirrored left and right.
+- **Header facts vs measurements.** The header fixes only the DEFAULT orientation (forward (0,0,-1), up (0,1,0)); it never says which side +X is. Measured by offline rendering: a source at +X is louder in output channel 1 (right) than channel 0 (left), by +7.7 dB with the test tone (and the mirror image for -X; centred source: -0.3 dB). Channel 0 = left / 1 = right is the engine's standard stereo order and is an assumption about the physical headphones until someone listens.
+- **Strong check.** For yaw, pitch, roll and combinations, rendering with the listener rotated by R is identical (relative error 0.000000) to rendering with the neutral listener and the source moved by R^-1, and differs by 0.48-1.40 when the rotation is applied the wrong way round. This ties the listener vectors to the engine's own source convention without any assumption about handedness. It cannot tell you whether your headphones are worn the right way round.
+- **Listening tests** (`ListeningTest`): A source left / right / ahead with the head still; B head sweep +-60 deg (12 s); C head holds at +-45 deg; D pitch sweep; E roll sweep. Each is a pure function of time. The "expected" text comes from `ListenerGeometry` (identity mapping), i.e. the physical truth, not from the flip switches. Procedure: docs/MANUAL_TEST_STEP3A.md.
+- **Flip switches** (`ListenerMapping`): audio-side yaw / pitch / roll negation, for diagnosis during the listening test only. Default identity; never a substitute for fixing the conversion.
+- **System head tracking is switched off explicitly** (`isListenerHeadTrackingEnabled = false`, macOS 15+, API in the SDK header) so the system cannot rotate our listener. With AirPods, macOS's own Spatial Audio head tracking is a separate system feature that this app cannot switch off; the manual test says to turn it off.
+- **Engine API notes (macOS 27 SDK):** `connect(_:to:format:)` and `AVAudioPlayerNode.play()` are deprecated from macOS 27 in favour of the throwing `connectNode(_:to:format:)` and `playAudio()`; the old forms raise Objective-C exceptions on errors, which Swift cannot catch. The renderer uses the new ones behind `#available(macOS 27.0, *)` and the old ones below. The input node is never touched (no microphone). Offline mode enables manual rendering before touching the mixer/output nodes, as the header requires.

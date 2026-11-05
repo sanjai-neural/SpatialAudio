@@ -23,7 +23,7 @@ let package = Package(
         // AVFoundation + Vision behind the HeadPoseProvider protocol.
         .target(name: "SpatialAudioTracking", dependencies: ["SpatialAudioCore"]),
 
-        // AudioSource / SpatialRenderer protocols and implementations.
+        // Spatial renderer (AVAudioEnvironmentNode + HRTF), test tone, pose pump, scripted listening tests.
         .target(name: "SpatialAudioEngine", dependencies: ["SpatialAudioCore"]),
 
         // SwiftUI shell + debug HUD. No DSP or CV logic here.
@@ -34,6 +34,7 @@ let package = Package(
 
         .testTarget(name: "SpatialAudioCoreTests", dependencies: ["SpatialAudioCore"]),
         .testTarget(name: "SpatialAudioTrackingTests", dependencies: ["SpatialAudioTracking", "SpatialAudioCore"]),
+        .testTarget(name: "SpatialAudioEngineTests", dependencies: ["SpatialAudioEngine", "SpatialAudioCore"]),
     ],
     cLanguageStandard: .c11
 )

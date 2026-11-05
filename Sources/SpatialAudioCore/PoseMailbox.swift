@@ -4,10 +4,11 @@ import CPoseMailbox
 /// (single producer) to the audio render thread (single consumer). Thin wrapper over the
 /// C triple buffer in `CPoseMailbox`.
 ///
-/// Rules: exactly one thread calls `publish`, exactly one other thread calls `read`.
-/// `init`/`deinit` allocate/free and are not real-time safe. Whether Swift class access
-/// (ARC) is acceptable inside the audio callback is a Step 3 question; the audio side may
-/// need to hold the raw pointer instead.
+/// Rules: exactly one (logical) thread calls `publish`, exactly one other calls `read`.
+/// `init`/`deinit` allocate/free and are not real-time safe. Since Step 3a it is read by the pose
+/// pump, a control thread, where this class is fine. Code that will run on a render thread must NOT
+/// use this class: it reads through the C API (`SAPoseMailboxRead`) with a raw pointer and plain
+/// structs (decision record: "Real-time rule" in docs/ARCHITECTURE.md).
 public final class PoseMailbox: @unchecked Sendable {
     public struct Reading: Equatable, Sendable {
         public var pose: Quaternion
