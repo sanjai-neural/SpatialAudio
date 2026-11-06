@@ -111,16 +111,6 @@ private func record(_ probe: OpaquePointer, _ index: UInt32 = 0) -> SATapProbeRe
         #expect(SATapProbeCreate(8, 1, false) != nil)
     }
 
-    @Test func aChannelCountThatWrapsA32BitProductIsHandled() throws {
-        // bytesPerSample 4 x mNumberChannels 0x40000000 is 0 modulo 2^32: with a 32-bit product the callback divided by zero
-        // (undefined behaviour, which arm64 turns into 0). THIS TEST CANNOT FAIL ON arm64 either way: it documents the intended result
-        // (no crash, 0 frames). The check that can fail is scripts/ubsan-tapprobe.sh (clang integer-divide-by-zero sanitizer).
-        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
-        callback(p, buffers: [[0.5, 0.5, 0.5, 0.5]], channelsPerBuffer: 0x4000_0000)
-        let r = record(p)
-        #expect(r.frames == 0 && r.samples == 4 && r.peak == 0.5)
-    }
-
     @Test func aFullBufferDropsAndCountsInsteadOfOverwriting() throws {
         let p = try #require(SATapProbeCreate(3, 4, true)); defer { SATapProbeFree(p) }
         for k in 0..<5 { callback(p, buffers: [[Float(k + 1) / 10]], host: UInt64(1000 + k)) }
