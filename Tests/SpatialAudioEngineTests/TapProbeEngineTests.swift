@@ -210,6 +210,26 @@ private final class TestTime: @unchecked Sendable { var t = 0.0 }
         #expect(r.lists.aggregateListedAfter == false && r.lists.tapListedAfter == false && r.lists.devicesBefore == 3 && r.lists.tapsBefore == 0)
     }
 
+    @Test func aTwentyFiveSecondBurstGivesThreeWindowsAtTheSyntheticRateAndTheFictionalFactsAreLabelled() throws {
+        var e = env; e.requestedSeconds = 25
+        let backend = SimulatedTapBackend(pacing: .burst(callbacks: 2344))                     // 25 s at 512 frames per callback and 48 kHz
+        let time = TestTime()
+        let r = TapProbeRunner.run(backend: backend, environment: e, clock: TapProbeClock(now: { time.t }, sleep: { time.t += $0 })) { _ in .timeout }
+        let w = try #require(r.stats?.windows)
+        #expect(w.map(\.startSecond) == [0, 10, 20] && w.map(\.callbacks).reduce(0, +) == 2344 && w.map(\.complete) == [true, true, false])
+        for x in w {                                                                           // an exact synthetic timeline: the implied rate is the nominal one
+            let implied = try #require(x.impliedFramesPerSecond), offset = try #require(x.cumulativeFrameOffset)
+            #expect(abs(implied - 48_000) < 1, "window \(x.startSecond): \(implied)")
+            #expect(abs(offset) < 1, "window \(x.startSecond): offset \(offset)")
+        }
+        #expect(r.isSimulated && r.outputDevice?.name == "SIMULATED output device" && r.aggregateDevice?.name == "SIMULATED aggregate device")
+        #expect(r.outputDevice?.role == "default output device" && r.aggregateDevice?.role == "tap aggregate device" && r.aggregateDevice?.scopeRead == "input")
+        #expect(r.markdown().contains("tap aggregate device: name **SIMULATED aggregate device**"))
+        #expect(r.rateSamples.count == 4 && r.rateSamples.compactMap(\.outputActualRate) == [48_000.625, 48_000.75, 48_000.875, 48_001.0])
+        #expect(r.rateComparison?.declaredRatesEqual == true && r.markdown().contains("SIMULATED SOURCE") && r.teardownClean)
+        #expect(try TapProbeReport.decode(r.jsonData()) == r)
+    }
+
     @Test func aBurstRunIsDeterministic() {
         #expect(run().stats == run().stats)
     }

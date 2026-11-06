@@ -41,6 +41,12 @@ public protocol TapProbeBackend: AnyObject {
     func destroyTap(_ tap: UInt32) -> Int32
     func listDevices() -> (ids: [UInt32], status: Int32)
     func listTaps() -> (ids: [UInt32], status: Int32)
+    /// Read-only property reads of the default output device (Step 6a2). Called once, before anything is created; remembers the device for `sampleActualRates`.
+    func outputDeviceFacts() -> TapDeviceFacts
+    /// The same for the tap's aggregate device (input-scope latencies), read while it runs.
+    func aggregateDeviceFacts(_ device: UInt32) -> TapDeviceFacts
+    /// `ActualSampleRate` of the output device read earlier and of the aggregate device (nil = unreadable).
+    func sampleActualRates(aggregate: UInt32?) -> (output: Double?, aggregate: Double?)
     /// Control thread, after stop: the records published so far.
     func collect() -> TapProbeCollected
 }
@@ -71,6 +77,8 @@ public struct TapProbeClock: Sendable {
 
 public enum TapProbeRunner {
     public static let maximumSeconds = 600.0
+    /// The run waits in slices of this many seconds and samples the device rates after each (Step 6a2); the cadence windows have the same length.
+    public static let windowSeconds = 10.0
     /// Upper bound used to size the record buffer: callbacks per second the probe is prepared to store.
     public static let assumedMaxCallbacksPerSecond = 1000.0
 
@@ -99,7 +107,7 @@ public enum TapProbeRunner {
     /// Runs the probe through `backend`. Always tears down what it created, in reverse order, on every path.
     /// `waitForStop(seconds)` blocks until the run time is over or a stop was requested (a signal) and says which.
     public static func run(backend: TapProbeBackend, environment: TapProbeEnvironment, clock: TapProbeClock,
-                           settleLimitSeconds: Double = 2.0, pollIntervalSeconds: Double = 0.01,
+                           settleLimitSeconds: Double = 2.0, pollIntervalSeconds: Double = 0.01, windowSeconds: Double = TapProbeRunner.windowSeconds,
                            waitForStop: (Double) -> TapProbeStopReason) -> TapProbeReport {
         var calls: [TapProbeCall] = []
         var notes: [String] = []
@@ -109,6 +117,8 @@ public enum TapProbeRunner {
         var elapsed = 0.0
         var format: TapFormat?
         var collected: TapProbeCollected?
+        var rateSamples: [TapRateSample] = []
+        var aggregateFacts: TapDeviceFacts?
 
         func log(_ name: String, _ status: Int32, _ note: String? = nil) { calls.append(TapProbeCall(name: name, status: status, note: note)) }
         func failed(_ name: String) { if outcome == "ok" { outcome = "failed at \(name)" } }
@@ -118,6 +128,9 @@ public enum TapProbeRunner {
         let tapsBefore = backend.listTaps(); log(Name.tapsList, tapsBefore.status, "before")
         lists.devicesBefore = devsBefore.status == 0 ? devsBefore.ids.count : nil
         lists.tapsBefore = tapsBefore.status == 0 ? tapsBefore.ids.count : nil
+
+        // 0b. Read-only facts about the default output device, before anything exists (property reads only).
+        let outputFacts = backend.outputDeviceFacts()
 
         // 1. Our own process object, to exclude ourselves.
         let own = backend.translateOwnPID()
@@ -171,11 +184,25 @@ public enum TapProbeRunner {
             guard st == 0 else { failed(Name.start); break build }
             started = true
 
-            // 8. Run.
+            // 8. Run, in slices; the device rates are read at the start and after every slice (a series, not one reading).
             let t0 = clock.now()
-            let reason = waitForStop(environment.requestedSeconds)
+            func sampleRates() {
+                let r = backend.sampleActualRates(aggregate: agg.device)
+                rateSamples.append(TapRateSample(elapsedSeconds: clock.now() - t0, outputActualRate: r.output, aggregateActualRate: r.aggregate))
+            }
+            sampleRates()
+            var remaining = environment.requestedSeconds
+            var reason = TapProbeStopReason.timeout
+            while remaining > 1e-9 {
+                let slice = min(windowSeconds, remaining)
+                let r = waitForStop(slice)
+                remaining -= slice
+                sampleRates()
+                if r == .signal { reason = .signal; break }
+            }
             elapsed = clock.now() - t0
             stoppedBy = reason.rawValue
+            aggregateFacts = backend.aggregateDeviceFacts(agg.device)
 
             // 9. Lists while everything still exists and runs.
             let devsDuring = backend.listDevices(); log(Name.devicesList, devsDuring.status, "while running")
@@ -220,7 +247,8 @@ public enum TapProbeRunner {
         // 12. Statistics and observations.
         var stats: TapProbeStats?
         if let c = collected {
-            stats = TapProbeAggregator.summarize(records: c.records, dropped: c.dropped, hostTicksPerSecond: c.hostTicksPerSecond)
+            stats = TapProbeAggregator.summarize(records: c.records, dropped: c.dropped, hostTicksPerSecond: c.hostTicksPerSecond,
+                                                 declaredRate: format?.sampleRate, windowSeconds: windowSeconds)
         }
         if let s = stats {
             if started && s.callbackCount == 0 { notes.append("The device started but no callback ran.") }
@@ -234,6 +262,26 @@ public enum TapProbeRunner {
             }
         }
 
+        // Rate comparison: numbers side by side, no verdict.
+        var comparison: TapRateComparison?
+        if let f = format {
+            let actuals = rateSamples.compactMap(\.outputActualRate)
+            let mean = actuals.isEmpty ? nil : actuals.reduce(0, +) / Double(actuals.count)
+            let implied = stats?.impliedFramesPerSecond
+            comparison = TapRateComparison(
+                tapDeclaredRate: f.sampleRate, outputNominalRate: outputFacts.nominalSampleRate,
+                declaredRatesEqual: outputFacts.nominalSampleRate.map { $0 == f.sampleRate },
+                tapImpliedFramesPerSecond: implied,
+                tapImpliedVsDeclaredPPM: (implied != nil && f.sampleRate > 0) ? (implied! / f.sampleRate - 1) * 1e6 : nil,
+                outputActualRateFirst: actuals.first, outputActualRateLast: actuals.last, outputActualRateMean: mean,
+                tapImpliedVsOutputActualPPM: (implied != nil && (mean ?? 0) > 0) ? (implied! / mean! - 1) * 1e6 : nil)
+            if comparison?.declaredRatesEqual == false {
+                notes.append(String(format: "The tap's declared rate (%.1f Hz) differs from the output device's nominal rate (%.1f Hz): a rate conversion is needed somewhere.", f.sampleRate, outputFacts.nominalSampleRate ?? 0))
+            }
+        }
+        let unreadable = outputFacts.failedReads + (aggregateFacts?.failedReads.map { "aggregate: " + $0 } ?? [])
+        if !unreadable.isEmpty { notes.append("Some device property reads returned a non-zero status and are left empty (see section 4): \(unreadable.joined(separator: ", ")).") }
+
         return TapProbeReport(
             createdAt: environment.createdAt, source: backend.source, macOSVersion: environment.macOSVersion,
             hardwareModel: environment.hardwareModel, composition: backend.composition, muteBehavior: "unmuted",
@@ -241,6 +289,7 @@ public enum TapProbeRunner {
             ownProcessObjectID: own.status == 0 && own.object != 0 ? own.object : nil, excludedProcessObjects: excluded,
             requestedSeconds: environment.requestedSeconds, elapsedSeconds: elapsed, stoppedBy: stoppedBy, outcome: outcome,
             tapFormat: format, hostTicksPerSecond: collected?.hostTicksPerSecond ?? 0, calls: calls, stats: stats, lists: lists,
-            teardownClean: teardownClean, notes: notes, assumptions: TapProbeReport.standardAssumptions)
+            teardownClean: teardownClean, notes: notes, assumptions: TapProbeReport.standardAssumptions,
+            outputDevice: outputFacts, aggregateDevice: aggregateFacts, rateSamples: rateSamples, rateComparison: comparison)
     }
 }

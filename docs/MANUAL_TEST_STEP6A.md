@@ -3,7 +3,7 @@
 Nothing below has been run against a real tap by Claude. Every item is **UNVERIFIED** until you run it and report back. The probe only MEASURES: it opens a Core Audio process tap (global, excluding this app, original audio left audible), counts the callbacks and levels for N seconds, writes a numbers-only report and tears everything down. No rendering, no camera, nothing muted, no audio stored.
 
 ## Run this on the right commit
-The manual run must be on the commit that carries the callback fix (message starts with **"Step 6a fix:"**), not on `98f22d9`, whose capture callback still had an incomplete zero-divisor guard. Before you start: `git log -1 --oneline` must show that "Step 6a fix:" commit, `git status --short` must be empty, and the bundle must be rebuilt at that commit (`scripts/make-app.sh debug`, below). A report from any other build says nothing about this commit; note the commit hash with each report you send.
+The manual run must be on the commit whose message starts with **"Step 6a2:"** (or a later one): it carries the callback fix (a zero or wrapped frame divisor, found after `98f22d9`) and the device / clock / rate facts and the long run described below. Not on `98f22d9` (incomplete zero-divisor guard) and not on `cc80ecb` (no device facts, schema 1). Before you start: `git log -1 --oneline` must show that "Step 6a2:" commit, `git status --short` must be empty, and the bundle must be rebuilt at that commit (`scripts/make-app.sh debug`, below). A report from any other build says nothing about this commit; note the commit hash with each report you send, and look at the report's `schemaVersion` (2 = this step).
 
 ## What you need
 - The dev bundle, rebuilt **at that commit** (it carries the `NSAudioCaptureUsageDescription` key): `cd /Users/sanjais/ClaudeHome/SpatialAudio && scripts/make-app.sh debug`
@@ -32,6 +32,11 @@ The manual run must be on the commit that carries the callback fix (message star
 - **Teardown**: `Clean: YES` means every created object was destroyed and neither was listed any more within the polling bound.
 - **Notes**: it says out loud if the capture was SILENT (nothing playing, protected content, or a permission refusal that gave no error), if this process had no audio process object, or if anything was flagged.
 
+### New in Step 6a2: device, clock and rate facts (section 4 of the report)
+The report now also carries read-only facts, numbers only, in its **section 4**: for the default output device (read BEFORE the tap exists) and for the tap's aggregate device (read WHILE it runs): name, transport type, nominal and actual sample rate, buffer size, device / stream latency and safety offset (frames), clock domain, and whether a clock device is named. Every read's status is kept; a value the system would not give is left empty, never guessed. Also: the output device's and the aggregate device's `ActualSampleRate` read at the start and after every 10 s, the tap's callback cadence per 10 s window (implied frames per second, parts per million against the declared rate, and the cumulative frame offset), and a side-by-side rate comparison. The report always ends section 4 with **"What this does and does not show"**: read it. In short, a tap-only aggregate device has no declared time source, the cadence is measured against the HOST clock, and nothing here supports a drift claim without a long measured series.
+**Privacy:** the **device name** is recorded as the system reports it, and a Bluetooth device's name can contain your own name ("Sanjai's AirPods"). Device UIDs are never recorded. Look at the name before you ever agree to commit a real report; I will not edit a real report.
+**What to note about the tap aggregate's clock:** if its `clock domain` is 0 the header says to treat it as separate from every other device; if it is non-zero and equal to the output device's, the header says only that they are "able to be synchronized in hardware".
+
 ## 3. Check the teardown from outside
 Right after the run, from a fresh process:
 ```
@@ -43,6 +48,14 @@ Expected: `aggregate devices: 0`, `devices named "SpatialAudio Tap Probe": 0`, `
 1. Make the app lose the permission: answer **Don't Allow** at a first prompt, or switch SpatialAudio's access off in System Settings > Privacy & Security (the pane's name for system audio capture is whatever your macOS calls it; write it down). If you want a clean slate, `tccutil reset All dev.spatialaudio.SpatialAudio` resets EVERY permission of this app, including the camera one (you will be asked for the camera again later).
 2. Run the same command again with audio playing.
 3. Record: did a prompt appear again? Which call failed, with which status? Or did everything succeed and the report show **silence** (a denied tap that delivers zeros without an error)? What does the report's Notes section say?
+
+## 4b. The long run (Step 6a2): drift needs a series
+A short run cannot say anything about drift. One 600-second run (the maximum) gives sixty 10-second windows.
+```
+caffeinate -i open -n -W --stdout /tmp/tapprobe600.out --stderr /tmp/tapprobe600.err build/SpatialAudio.app --args --tap-probe 600
+```
+**What it costs you:** ten-plus minutes during which (1) audio must be playing the WHOLE time (a long non-protected file, or a playlist of your own files; the capture of silence tells us nothing about the clock) at a comfortable volume; (2) the Mac must stay awake: `caffeinate -i` (above) stops idle sleep, but closing the lid, a low battery or a manual sleep ends the run and shows up as a gap in the windows (note it if it happens); (3) do NOT change the output device, connect or disconnect Bluetooth, or change the sample rate in Audio MIDI Setup unless you are deliberately testing that (then write down when, by the clock on your wrist, so it can be matched to the windows); (4) there is no window and no Dock icon, so nothing shows you progress; Ctrl-C does not reach an `open`ed app (the probe stops itself at 600 s). The probe's own cost is small: the callback does arithmetic and one 32-byte write; the record buffer is sized for the run (about 600,000 records of 32 bytes, from the sizes in the code, not measured). The permission prompt appears as in section 1 if it has not been answered before.
+**Look at:** section 4 of the report: the `implied frames/s` and `vs declared (ppm)` columns across the windows (steady, or trending?), the `cumulative frame offset` (does it grow in one direction, or stay inside a callback's worth of jitter?), and the `ActualSampleRate` rows (do the output and aggregate readings move, and do they differ from each other?). A trend would be a measured series; one window or one reading would not.
 
 ## 5. Optional: without the Info.plist key
 This tells us whether `NSAudioCaptureUsageDescription` is really needed.
@@ -57,7 +70,7 @@ This tells us whether `NSAudioCaptureUsageDescription` is really needed.
 
 ## Report back
 1. The pasted `.md` report of each run (the `.json` stays on disk). A report with blanks or placeholders is not a result.
-2. The permission observations from section 1: prompt text and buttons, when it appeared, what you pressed, the app name it showed, anything in the menu bar or Settings.
+2. The permission observations from section 1 (and for the long run, the exact audio you played and anything that interrupted it): prompt text and buttons, when it appeared, what you pressed, the app name it showed, anything in the menu bar or Settings.
 3. The denied-path observations (section 4) and, if you did it, the no-key observation (section 5).
 4. Whether the original audio stayed audible and glitch-free during the runs.
 5. The `--list-audio-devices` output after a run.

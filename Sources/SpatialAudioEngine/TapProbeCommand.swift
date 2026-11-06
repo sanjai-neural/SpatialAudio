@@ -83,12 +83,31 @@ public enum TapProbeCommand {
             if cls == kAudioAggregateDeviceClassID { aggregates += 1 }
             if let name = CoreAudioProperty.string(of: id, kAudioObjectPropertyName).value, name.hasPrefix("SpatialAudio Tap Probe") { ours += 1 }
         }
-        return """
+        var lines = """
         audio objects visible to this process (status of the device list read: \(devices.status), of the tap list read: \(taps.status))
         devices: \(devices.ids.count)
         aggregate devices: \(aggregates)
         devices named "SpatialAudio Tap Probe": \(ours)
         taps: \(taps.ids.count)
         """
+        // Step 6a2: the read-only facts the probe's report carries, for the default output device (property getters only; nothing is created or started).
+        let d = AudioDeviceFactsReader.defaultOutputDevice()
+        if let id = d.id {
+            let f = AudioDeviceFactsReader.read(device: id, role: "default output device", scope: kAudioObjectPropertyScopeOutput)
+            func u(_ v: UInt32?) -> String { v.map(String.init) ?? "-" }
+            lines += """
+
+            default output device (read-only property reads):
+              name: \(f.name ?? "-")   transport: \(f.transportType ?? "-") \(f.transportName ?? "")
+              nominal rate: \(f.nominalSampleRate.map { String(format: "%.1f", $0) } ?? "-") Hz   actual rate: \(f.actualSampleRate.map { String(format: "%.3f", $0) } ?? "-") Hz   buffer: \(u(f.bufferFrameSize)) frames
+              channels in / out: \(f.inputChannels.map(String.init) ?? "-") / \(f.outputChannels.map(String.init) ?? "-")
+              latency (output scope): \(u(f.deviceLatencyFrames)) frames   safety offset: \(u(f.safetyOffsetFrames)) frames   stream latency: \(f.streamLatencyFrames.map(String.init).joined(separator: ", ")) frames
+              clock domain: \(u(f.clockDomain))   clock device named: \(f.hasClockDevice.map { $0 ? "yes" : "no" } ?? "-")\(f.clockDeviceIsItself == true ? " (the device itself)" : "")
+              reads with a non-zero status: \(f.failedReads.isEmpty ? "none" : f.failedReads.joined(separator: ", "))
+            """
+        } else {
+            lines += "\ndefault output device: none readable (status \(d.status))"
+        }
+        return lines
     }
 }

@@ -10,8 +10,9 @@ enum CoreAudioProperty {
     }
 
     /// A property that is an array of AudioObjectIDs (the device list, the tap list, ...).
-    static func objectIDs(of object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> (ids: [UInt32], status: Int32) {
-        var addr = address(selector)
+    static func objectIDs(of object: AudioObjectID, _ selector: AudioObjectPropertySelector,
+                          scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> (ids: [UInt32], status: Int32) {
+        var addr = address(selector, scope: scope)
         var size: UInt32 = 0
         var status = AudioObjectGetPropertyDataSize(object, &addr, 0, nil, &size)
         guard status == 0 else { return ([], status) }
@@ -38,6 +39,15 @@ enum CoreAudioProperty {
         var addr = address(selector, scope: scope)
         var size = UInt32(MemoryLayout<UInt32>.size)
         var value: UInt32 = 0
+        let status = AudioObjectGetPropertyData(object, &addr, 0, nil, &size, &value)
+        return (status == 0 ? value : nil, status)
+    }
+
+    static func float64(of object: AudioObjectID, _ selector: AudioObjectPropertySelector,
+                        scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> (value: Double?, status: Int32) {
+        var addr = address(selector, scope: scope)
+        var size = UInt32(MemoryLayout<Float64>.size)
+        var value: Float64 = 0
         let status = AudioObjectGetPropertyData(object, &addr, 0, nil, &size, &value)
         return (status == 0 ? value : nil, status)
     }

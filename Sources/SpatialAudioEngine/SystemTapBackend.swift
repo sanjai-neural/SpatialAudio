@@ -31,6 +31,7 @@ public final class SystemTapBackend: TapProbeBackend {
     private var procID: AudioDeviceIOProcID?
     private var outputDeviceUID: String?
     private var outputDeviceInputChannels: Int?
+    private var outputDeviceID: AudioObjectID?          // the default output device read by `outputDeviceFacts`, sampled again for the rate series
 
     public init(composition: Composition = .tapOnly) {
         mode = composition
@@ -146,6 +147,26 @@ public final class SystemTapBackend: TapProbeBackend {
 
     public func listDevices() -> (ids: [UInt32], status: Int32) { CoreAudioProperty.objectIDs(of: AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDevices) }
     public func listTaps() -> (ids: [UInt32], status: Int32) { CoreAudioProperty.objectIDs(of: AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyTapList) }
+
+    // MARK: read-only device facts (Step 6a2)
+
+    public func outputDeviceFacts() -> TapDeviceFacts {
+        let d = AudioDeviceFactsReader.defaultOutputDevice()
+        guard let id = d.id else { return TapDeviceFacts(role: "default output device", statuses: ["kAudioHardwarePropertyDefaultOutputDevice": d.status]) }
+        outputDeviceID = id
+        var f = AudioDeviceFactsReader.read(device: id, role: "default output device", scope: kAudioObjectPropertyScopeOutput)
+        f.statuses["kAudioHardwarePropertyDefaultOutputDevice"] = d.status
+        return f
+    }
+
+    public func aggregateDeviceFacts(_ device: UInt32) -> TapDeviceFacts {
+        AudioDeviceFactsReader.read(device: AudioObjectID(device), role: "tap aggregate device", scope: kAudioObjectPropertyScopeInput)
+    }
+
+    public func sampleActualRates(aggregate: UInt32?) -> (output: Double?, aggregate: Double?) {
+        (outputDeviceID.flatMap { CoreAudioProperty.float64(of: $0, kAudioDevicePropertyActualSampleRate).value },
+         aggregate.flatMap { CoreAudioProperty.float64(of: AudioObjectID($0), kAudioDevicePropertyActualSampleRate).value })
+    }
 
     public func collect() -> TapProbeCollected {
         TapProbeCollected(records: TapProbeRecords.read(probe), dropped: probe.map(SATapProbeDropped) ?? 0, hostTicksPerSecond: AudioGetHostClockFrequency())

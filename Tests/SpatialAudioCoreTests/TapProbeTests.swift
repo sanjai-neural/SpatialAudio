@@ -149,6 +149,12 @@ final class FakeBackend: TapProbeBackend {
     var readsUntilGone = 1                        // list reads after destroy that still show the object; Int.max = never gone
     var goneDespiteFailure: Set<String> = []      // destroy calls that return an error status but still remove the object
     var formatBits: UInt32 = 32                   // bits per channel the fake tap reports
+    var outFacts = TapDeviceFacts(role: "default output device", name: "fake out", transportType: "bltn", transportName: "kAudioDeviceTransportTypeBuiltIn",
+                                  nominalSampleRate: 48_000, actualSampleRate: 48_000, bufferFrameSize: 512, outputChannels: 2, inputChannels: 0, scopeRead: "output",
+                                  deviceLatencyFrames: 1, safetyOffsetFrames: 2, streamLatencyFrames: [3], clockDomain: 7, hasClockDevice: false, statuses: [:])
+    var aggFacts = TapDeviceFacts(role: "tap aggregate device", name: "fake aggregate", scopeRead: "input", deviceLatencyFrames: 4, clockDomain: 0, statuses: [:])
+    var actualRates: [(output: Double?, aggregate: Double?)] = []     // returned in order by sampleActualRates; the last one repeats
+    private var rateReads = 0
     var records: [TapProbeRecord] = []
     // observation
     var log: [String] = []
@@ -195,6 +201,14 @@ final class FakeBackend: TapProbeBackend {
         if tapDestroyed { tapDestroyedReads += 1; if tapDestroyedReads <= readsUntilGone { listed = true } }
         return (listed ? [11] : [], status("listTaps"))
     }
+    func outputDeviceFacts() -> TapDeviceFacts { log.append("outputDeviceFacts"); return outFacts }
+    func aggregateDeviceFacts(_ device: UInt32) -> TapDeviceFacts { log.append("aggregateDeviceFacts"); return aggFacts }
+    func sampleActualRates(aggregate: UInt32?) -> (output: Double?, aggregate: Double?) {
+        log.append("sampleActualRates")
+        guard !actualRates.isEmpty else { return (nil, nil) }
+        defer { rateReads += 1 }
+        return actualRates[min(rateReads, actualRates.count - 1)]
+    }
     func collect() -> TapProbeCollected { log.append("collect"); return TapProbeCollected(records: records, dropped: 0, hostTicksPerSecond: 1000) }
 }
 
@@ -215,7 +229,7 @@ final class FakeBackend: TapProbeBackend {
         let r = run(b) { waitedFor = $0 }
         #expect(r.outcome == "ok" && r.teardownClean && r.stoppedBy == "timeout" && waitedFor == 5)
         #expect(b.live.isEmpty)
-        let order = b.log.filter { !["listDevices", "listTaps"].contains($0) }
+        let order = b.log.filter { !["listDevices", "listTaps", "outputDeviceFacts", "aggregateDeviceFacts", "sampleActualRates"].contains($0) }
         #expect(order == ["translateOwnPID", "preflight", "createTap", "readTapUID", "readTapFormat", "prepareCapture", "createAggregate", "createIOProc",
                           "start", "stop", "destroyIOProc", "collect", "destroyAggregate", "destroyTap"])
         #expect(b.excludedSeen == [4242] && r.excludedProcessObjects == [4242] && r.ownProcessObjectID == 4242)
@@ -375,7 +389,7 @@ final class FakeBackend: TapProbeBackend {
     @Test func markdownHasTheSectionsAndTheSimulatedBannerOnlyForSimulatedSources() {
         let real = report(source: "coreAudioTap").markdown()
         for needle in ["# SpatialAudio system-audio tap probe (Step 6a)", "## 1. Format of the tap", "## 2. Callbacks", "## 3. Every Core Audio call and its status",
-                       "## 4. Teardown", "Float32 non-interleaved", "Frames per callback", "Callback interval", "mute behavior unmuted", "## Assumptions and limits"] {
+                       "## 4. Devices, clocks and rates", "What this does and does not show", "## 5. Teardown", "Float32 non-interleaved", "Frames per callback", "Callback interval", "mute behavior unmuted", "## Assumptions and limits"] {
             #expect(real.contains(needle), "missing \(needle)")
         }
         #expect(!real.contains("SIMULATED SOURCE"))

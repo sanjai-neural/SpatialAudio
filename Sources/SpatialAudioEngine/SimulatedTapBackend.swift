@@ -88,6 +88,24 @@ public final class SimulatedTapBackend: TapProbeBackend {
         return (ids, 0)
     }
 
+    // Fictional facts, labelled as such: they exist so the report's fields and the rate series can be exercised. Nothing here is a reading of a device.
+    private var rateReads = 0
+    public func outputDeviceFacts() -> TapDeviceFacts {
+        TapDeviceFacts(role: "default output device", name: "SIMULATED output device", transportType: "virt", transportName: "kAudioDeviceTransportTypeVirtual",
+                       nominalSampleRate: 48_000, actualSampleRate: 48_000.5, bufferFrameSize: 512, outputChannels: 2, inputChannels: 0, scopeRead: "output",
+                       deviceLatencyFrames: 11, safetyOffsetFrames: 22, streamLatencyFrames: [33], clockDomain: 0, hasClockDevice: false, clockDeviceIsItself: nil,
+                       statuses: ["simulated": 0])
+    }
+    public func aggregateDeviceFacts(_ device: UInt32) -> TapDeviceFacts {
+        TapDeviceFacts(role: "tap aggregate device", name: "SIMULATED aggregate device", transportType: "grup", transportName: "kAudioDeviceTransportTypeAggregate",
+                       nominalSampleRate: 48_000, actualSampleRate: 48_000.25, bufferFrameSize: 512, outputChannels: 0, inputChannels: 2, scopeRead: "input",
+                       deviceLatencyFrames: 44, safetyOffsetFrames: 55, streamLatencyFrames: [66], clockDomain: 0, hasClockDevice: false, statuses: ["simulated": 0])
+    }
+    public func sampleActualRates(aggregate: UInt32?) -> (output: Double?, aggregate: Double?) {
+        rateReads += 1
+        return (48_000.5 + Double(rateReads) * 0.125, 48_000.25)
+    }
+
     public func collect() -> TapProbeCollected {
         let ticks: Double
         switch pacing { case .burst: ticks = Emitter.syntheticTicksPerSecond; case .realTime: ticks = AudioGetHostClockFrequency() }
