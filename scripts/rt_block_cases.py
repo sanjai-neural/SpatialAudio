@@ -2,7 +2,7 @@
 """Builds ONE deliberately broken variant of the Step 6b render path from the REAL sources, shows that the intended call is really in the object the
 scan reads, and runs the scan on it (docs/ARCHITECTURE.md "Scan rule for the Step 6b block"). Driven by scripts/scan-rt-block-cases.sh.
 
-  rt_block_cases.py CASE        CASE = 1v | 2 | 3 | 4 | 5 | p1 | p2 | p3 | p4     (case 1 is the shipped release objects: scripts/scan-rt-block.sh)
+  rt_block_cases.py CASE        CASE = 1v | 2 | 3 | 4 | 5 | z | p1 | p2 | p3 | p4     (case 1 is the shipped release objects: scripts/scan-rt-block.sh)
 
 Every patch must match EXACTLY ONCE in the real source (else the run stops with exit 3). The objects are compiled with the flags SwiftPM uses for
 this target (read from its build: -Os -g -fobjc-arc -std=c11, arm64-apple-macos14.0) except that -Werror=function-effects is turned off (the
@@ -58,6 +58,8 @@ CASES = {
     "5": ("the allow-listed callee itself calls malloc", "CALLEE-CALLS",
           [("#define SA_PHASE_NONE_BITS 0x7ff8000000000000ull", "#define SA_PHASE_NONE_BITS 0x7ff8000000000000ull\n" + SINK),
            ("    const SARing *ring = rd->ring;\n", "    const SARing *ring = rd->ring;\n    " + MALLOC + "\n")], [], "", ("C", "_SARingRender", "_malloc", 1)),
+    "z": ("the render function without its no_builtin attribute: clang turns the zero-fill loop into a call to bzero (this happened to the first release object)", "CALLEE-CALLS",
+          [("CA_REALTIME_API __attribute__((no_builtin)) {", "CA_REALTIME_API {")], [], "", ("C", "_SARingRender", "_bzero", 1)),
     "p1": ("producer: malloc inside SARingIOProc", "CALLS",
            [("#define SA_PHASE_NONE_BITS 0x7ff8000000000000ull", "#define SA_PHASE_NONE_BITS 0x7ff8000000000000ull\n" + SINK),
             (IOPROC_OLD, IOPROC_OLD + "    " + MALLOC + "\n")], [], "", ("C", "_SARingIOProc", "_malloc", 1)),

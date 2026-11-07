@@ -21,6 +21,20 @@ typedef _Atomic float SASample;
 #define SA_SAMPLE_LOAD(p)     atomic_load_explicit((p), memory_order_relaxed)
 #endif
 
+/* Test hooks: compiled in ONLY when scripts/check-systemaudioring.sh and ubsan-systemaudioring.sh build the deterministic harness with -DSA_RING_TEST_HOOKS.
+ * They let a single-threaded scenario put the producer at exactly the moments the threaded stress hits only by luck: BEFORE the copy (an in-flight commit
+ * whose samples are written but whose `w` is not yet published: SARingTestWriteUnpublished) and AFTER the copy (commits that complete while the block is
+ * being read). In every other build, including SwiftPM's, they expand to nothing and the production object code is unchanged (checked by disassembly). */
+#if defined(SA_RING_TEST_HOOKS)
+extern void saTestBeforeCopy(const SARing *ring, SARingReader *reader);   /* defined by the harness */
+extern void saTestAfterCopy(const SARing *ring, SARingReader *reader);    /* defined by the harness */
+#define SA_TEST_BEFORE_COPY(ring, reader) saTestBeforeCopy((ring), (reader))
+#define SA_TEST_AFTER_COPY(ring, reader) saTestAfterCopy((ring), (reader))
+#else
+#define SA_TEST_BEFORE_COPY(ring, reader) ((void)0)
+#define SA_TEST_AFTER_COPY(ring, reader) ((void)0)
+#endif
+
 #define SA_PHASE_NONE_BITS 0x7ff8000000000000ull   /* a quiet NaN: "no valid phase published yet" in ONE atomic word */
 
 struct SARingReader {
@@ -64,14 +78,9 @@ static inline __attribute__((always_inline)) CA_REALTIME_API void sa_reject(SARi
 static inline __attribute__((always_inline)) CA_REALTIME_API double sa_bits_to_double(uint64_t b) { return __builtin_bit_cast(double, b); }
 static inline __attribute__((always_inline)) CA_REALTIME_API uint64_t sa_double_to_bits(double d) { return __builtin_bit_cast(uint64_t, d); }
 
-/* The producer's whole job. Protocol (docs/ARCHITECTURE.md, "Step 6b-1"): release fence, data stores, then ONE release store of w.
- * The fence is what lets a reader that sees ANY of this commit's samples also see the previous value of w afterwards (the usual
- * overwrite-detection pattern); the release store is what publishes the commit. */
-static inline __attribute__((always_inline)) CA_REALTIME_API void sa_write(SARing *ring, const float *in, uint32_t frames) {
-    if (frames == 0) { sa_reject(ring, SA_RING_REJECT_EMPTY); return; }
-    if (frames > ring->maxCommit) { sa_reject(ring, SA_RING_REJECT_OVERSIZE); return; }
-    const int64_t w0 = atomic_load_explicit(&ring->w, memory_order_relaxed);   /* single writer: our own index */
-    atomic_thread_fence(memory_order_release);
+/* The sample stores of one commit: de-interleave `frames` stereo frames into the two planes starting at frame index w0. Shared by sa_write and by the
+ * test hook that writes a commit WITHOUT publishing it. */
+static inline __attribute__((always_inline)) CA_REALTIME_API void sa_write_samples(SARing *ring, const float *in, uint32_t frames, int64_t w0) {
     const uint64_t mask = ring->mask;
     SASample *left = ring->plane[0];
     SASample *right = ring->plane[1];
@@ -80,6 +89,24 @@ static inline __attribute__((always_inline)) CA_REALTIME_API void sa_write(SARin
         SA_SAMPLE_STORE(&left[slot], in[2u * (size_t)i]);
         SA_SAMPLE_STORE(&right[slot], in[2u * (size_t)i + 1u]);
     }
+}
+
+#if defined(SA_RING_TEST_HOOKS)
+/* Harness only: the samples of a commit are in the ring but `w` has not moved (a producer caught between its stores and its release store). */
+void SARingTestWriteUnpublished(SARing *ring, const float *in, uint32_t frames) {
+    sa_write_samples(ring, in, frames, atomic_load_explicit(&ring->w, memory_order_relaxed));
+}
+#endif
+
+/* The producer's whole job. Protocol (docs/ARCHITECTURE.md, "Step 6b-1"): release fence, data stores, then ONE release store of w.
+ * The fence is what lets a reader that sees ANY of this commit's samples also see the previous value of w afterwards (the usual
+ * overwrite-detection pattern); the release store is what publishes the commit. */
+static inline __attribute__((always_inline)) CA_REALTIME_API void sa_write(SARing *ring, const float *in, uint32_t frames) {
+    if (frames == 0) { sa_reject(ring, SA_RING_REJECT_EMPTY); return; }
+    if (frames > ring->maxCommit) { sa_reject(ring, SA_RING_REJECT_OVERSIZE); return; }
+    const int64_t w0 = atomic_load_explicit(&ring->w, memory_order_relaxed);   /* single writer: our own index */
+    atomic_thread_fence(memory_order_release);
+    sa_write_samples(ring, in, frames, w0);
     sa_bump(&ring->commits, 1);
     atomic_store_explicit(&ring->lastCommitFrames, frames, memory_order_relaxed);
     atomic_store_explicit(&ring->w, w0 + (int64_t)frames, memory_order_release);   /* publish only after every sample is written */
@@ -274,7 +301,9 @@ OSStatus SARingRender(SARingReader *rd,
         } else {
             const SASample *src = ring->plane[rd->channel];
             const uint64_t mask = ring->mask;
+            SA_TEST_BEFORE_COPY(ring, rd);
             for (int64_t i = 0; i < F; i++) dst[i] = SA_SAMPLE_LOAD(&src[(uint64_t)(r + i) & mask]);
+            SA_TEST_AFTER_COPY(ring, rd);
             atomic_thread_fence(memory_order_acquire);   /* the samples above are read before w is read again */
             const int64_t w2 = atomic_load_explicit(&ring->w, memory_order_relaxed);
             if (w2 - r > window) {
