@@ -6,6 +6,8 @@
 #   scripts/scan-rt-block-cases.sh 3     a direct malloc inside the block
 #   scripts/scan-rt-block-cases.sh 4     the allow-listed callee called twice
 #   scripts/scan-rt-block-cases.sh 5     the allow-listed callee itself calls malloc
+#   scripts/scan-rt-block-cases.sh 6     the block ends with a tail call (a plain `b`) to a non-allow-listed symbol
+#   scripts/scan-rt-block-cases.sh 7     the block makes an indirect call (`blr`)
 #   scripts/scan-rt-block-cases.sh z     the render function without no_builtin (hidden bzero, the real trap)
 #   scripts/scan-rt-block-cases.sh p1..p4   producer variants (malloc; helper not inlined; hidden memcpy; mutex)
 # Exit code = the scan's (0 pass, 1 rule violated) unless the variant itself was not broken in the object (3) or the scan failed without naming

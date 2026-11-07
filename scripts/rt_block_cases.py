@@ -2,7 +2,7 @@
 """Builds ONE deliberately broken variant of the Step 6b render path from the REAL sources, shows that the intended call is really in the object the
 scan reads, and runs the scan on it (docs/ARCHITECTURE.md "Scan rule for the Step 6b block"). Driven by scripts/scan-rt-block-cases.sh.
 
-  rt_block_cases.py CASE        CASE = 1v | 2 | 3 | 4 | 5 | z | p1 | p2 | p3 | p4     (case 1 is the shipped release objects: scripts/scan-rt-block.sh)
+  rt_block_cases.py CASE        CASE = 1v | 2 | 3 | 4 | 5 | 6 | 7 | z | p1 | p2 | p3 | p4     (case 1 is the shipped release objects: scripts/scan-rt-block.sh)
 
 Every patch must match EXACTLY ONCE in the real source (else the run stops with exit 3). The objects are compiled with the flags SwiftPM uses for
 this target (read from its build: -Os -g -fobjc-arc -std=c11, arm64-apple-macos14.0) except that -Werror=function-effects is turned off (the
@@ -43,6 +43,8 @@ def clean_copy_of_render(c_text):
 
 M_DECL_OLD = '#import "CSystemAudioRing.h"'
 CALL_OLD = "const OSStatus status = SARingRender(reader, &silent, timestamp, frameCount, outputData);"
+BLOCK_BODY_OLD = ("        bool silent = false;\n        const OSStatus status = SARingRender(reader, &silent, timestamp, frameCount, outputData);\n"
+                  "        *isSilence = silent;\n        return status;\n")
 IOPROC_OLD = "    SARing *ring = (SARing *)inClientData;\n    if (!ring) return 0;\n"
 # case id -> (description, expected tag, C edits, M edits, extra C text, (object, function, callee symbol, how many call lines expected))
 CASES = {
@@ -58,6 +60,12 @@ CASES = {
     "5": ("the allow-listed callee itself calls malloc", "CALLEE-CALLS",
           [("#define SA_PHASE_NONE_BITS 0x7ff8000000000000ull", "#define SA_PHASE_NONE_BITS 0x7ff8000000000000ull\n" + SINK),
            ("    const SARing *ring = rd->ring;\n", "    const SARing *ring = rd->ring;\n    " + MALLOC + "\n")], [], "", ("C", "_SARingRender", "_malloc", 1)),
+    "6": ("the block ENDS with a tail call: `return SARingRenderClean(...)` compiles to a plain `b` to a non-allow-listed symbol (no `bl`, no code after it)",
+          "NOT-ALLOW-LISTED", [], [(M_DECL_OLD, M_DECL_OLD + "\nOSStatus SARingRenderClean(SARingReader *reader, bool *isSilence, const AudioTimeStamp *timestamp, uint32_t frameCount, AudioBufferList *outputData);"),
+                                  (BLOCK_BODY_OLD, "        return SARingRenderClean(reader, (bool *)isSilence, timestamp, frameCount, outputData);\n")], "CLEAN", ("M", BLOCK_FN, "_SARingRenderClean", 1)),
+    "7": ("the block makes an INDIRECT call (`blr`) through a volatile function pointer whose value is the allow-listed callee itself",
+          "INDIRECT-CALL", [], [("AVAudioSourceNode *SACreateSourceNode(", "static OSStatus (*volatile gRenderFn)(SARingReader *, bool *, const AudioTimeStamp *, uint32_t, AudioBufferList *) = SARingRender;\nAVAudioSourceNode *SACreateSourceNode("),
+                                 (CALL_OLD, CALL_OLD.replace("SARingRender(", "gRenderFn("))], "", ("M", BLOCK_FN, "blr", 1)),
     "z": ("the render function without its no_builtin attribute: clang turns the zero-fill loop into a call to bzero (this happened to the first release object)", "CALLEE-CALLS",
           [("CA_REALTIME_API __attribute__((no_builtin)) {", "CA_REALTIME_API {")], [], "", ("C", "_SARingRender", "_bzero", 1)),
     "p1": ("producer: malloc inside SARingIOProc", "CALLS",
@@ -90,6 +98,11 @@ def evidence(obj, fn, callee, expected):
     lines = function_text(obj, fn)
     found = 0
     for i, line in enumerate(lines):
+        if callee == "blr":                                   # an indirect call has no relocation: match the instruction itself
+            if re.search(r"\sblr\s", line):
+                print("   ", line.strip())
+                found += 1
+            continue
         if re.search(r"\s(bl|b)\s", line) and i + 1 < len(lines):
             nxt = lines[i + 1]
             if re.search(r"ARM64_RELOC_BRANCH26\s+" + re.escape(callee) + r"\s*$", nxt) or (callee in line and "RELOC" not in nxt):
