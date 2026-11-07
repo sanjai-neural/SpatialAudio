@@ -1,0 +1,433 @@
+{
+  "aggregateDevice" : {
+    "actualSampleRate" : 48000,
+    "bufferFrameSize" : 512,
+    "clockDomain" : 0,
+    "deviceLatencyFrames" : 0,
+    "hasClockDevice" : false,
+    "inputChannels" : 2,
+    "name" : "SpatialAudio Tap Probe",
+    "nominalSampleRate" : 48000,
+    "outputChannels" : 0,
+    "role" : "tap aggregate device",
+    "safetyOffsetFrames" : 0,
+    "scopeRead" : "input",
+    "statuses" : {
+      "kAudioDevicePropertyActualSampleRate" : 0,
+      "kAudioDevicePropertyBufferFrameSize" : 0,
+      "kAudioDevicePropertyClockDevice" : 0,
+      "kAudioDevicePropertyClockDomain" : 0,
+      "kAudioDevicePropertyDeviceUID" : 0,
+      "kAudioDevicePropertyLatency" : 0,
+      "kAudioDevicePropertyNominalSampleRate" : 0,
+      "kAudioDevicePropertySafetyOffset" : 0,
+      "kAudioDevicePropertyStreamConfiguration (input)" : 0,
+      "kAudioDevicePropertyStreamConfiguration (output)" : 0,
+      "kAudioDevicePropertyStreams" : 0,
+      "kAudioDevicePropertyTransportType" : 0,
+      "kAudioObjectPropertyName" : 0,
+      "kAudioStreamPropertyLatency" : 0
+    },
+    "streamLatencyFrames" : [
+      0
+    ],
+    "transportName" : "kAudioDeviceTransportTypeAggregate",
+    "transportType" : "grup"
+  },
+  "assumptions" : [
+    "Measures only: no rendering, no camera, nothing muted (the tap's mute behavior is 'unmuted'); the captured audio is counted, never stored or played.",
+    "Whether the tap carried audio is read from the levels; a permission denial or protected (DRM) content can also read as silence. Neither is worked around.",
+    "Level and timing numbers come from the callbacks' own host timestamps and buffers; frames per callback is read from the first buffer of each callback.",
+    "Status codes are the OSStatus each call returned; names are given only where AudioHardwareBase.h names the code.",
+    "The permission prompt text, the Info.plist key it needed and the behavior when denied are observations by the person running the probe (docs\/MANUAL_TEST_STEP6A.md), not something the code can detect."
+  ],
+  "calls" : [
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyDevices)",
+      "note" : "before",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTapList)",
+      "note" : "before",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTranslatePIDToProcessObject)",
+      "note" : "object 148",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioHardwareCreateProcessTap",
+      "note" : "tap object 149",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(tap, kAudioTapPropertyUID)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(tap, kAudioTapPropertyFormat)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "allocate record buffer (control thread)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioHardwareCreateAggregateDevice",
+      "note" : "device 150",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioDeviceCreateIOProcID",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioDeviceStart",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyDevices)",
+      "note" : "while running",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTapList)",
+      "note" : "while running",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioDeviceStop",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioDeviceDestroyIOProcID",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioHardwareDestroyAggregateDevice",
+      "note" : "asynchronous according to AudioHardware.h",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioHardwareDestroyProcessTap",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyDevices)",
+      "note" : "after teardown, last of 2 read(s)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTapList)",
+      "note" : "after teardown, last of 2 read(s)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    }
+  ],
+  "composition" : "private aggregate device with the tap only (no sub-device)",
+  "createdAt" : "2026-11-07T11:05:08+05:30",
+  "elapsedSeconds" : 10.001694791999999,
+  "excludedProcessObjects" : [
+    148
+  ],
+  "hardwareModel" : "Mac16,12",
+  "hostTicksPerSecond" : 24000000,
+  "kind" : "system-audio tap probe (Step 6a)",
+  "lists" : {
+    "aggregateListedAfter" : false,
+    "aggregateListedDuring" : true,
+    "devicesAfter" : 4,
+    "devicesBefore" : 4,
+    "devicesDuring" : 5,
+    "settlePolls" : 2,
+    "settleSeconds" : 0.011221499999999551,
+    "tapListedAfter" : false,
+    "tapListedDuring" : true,
+    "tapsAfter" : 0,
+    "tapsBefore" : 0,
+    "tapsDuring" : 1
+  },
+  "macOSVersion" : "Version 27.2 (Build 26B123)",
+  "muteBehavior" : "unmuted",
+  "notes" : [
+
+  ],
+  "outcome" : "ok",
+  "outputDevice" : {
+    "actualSampleRate" : 48000,
+    "bufferFrameSize" : 512,
+    "clockDomain" : 1835100526,
+    "deviceLatencyFrames" : 60,
+    "hasClockDevice" : false,
+    "inputChannels" : 0,
+    "name" : "MacBook Air Speakers",
+    "nominalSampleRate" : 48000,
+    "outputChannels" : 2,
+    "role" : "default output device",
+    "safetyOffsetFrames" : 48,
+    "scopeRead" : "output",
+    "statuses" : {
+      "kAudioDevicePropertyActualSampleRate" : 0,
+      "kAudioDevicePropertyBufferFrameSize" : 0,
+      "kAudioDevicePropertyClockDevice" : 0,
+      "kAudioDevicePropertyClockDomain" : 0,
+      "kAudioDevicePropertyDeviceUID" : 0,
+      "kAudioDevicePropertyLatency" : 0,
+      "kAudioDevicePropertyNominalSampleRate" : 0,
+      "kAudioDevicePropertySafetyOffset" : 0,
+      "kAudioDevicePropertyStreamConfiguration (input)" : 0,
+      "kAudioDevicePropertyStreamConfiguration (output)" : 0,
+      "kAudioDevicePropertyStreams" : 0,
+      "kAudioDevicePropertyTransportType" : 0,
+      "kAudioHardwarePropertyDefaultOutputDevice" : 0,
+      "kAudioObjectPropertyName" : 0,
+      "kAudioStreamPropertyLatency" : 0
+    },
+    "streamLatencyFrames" : [
+      556
+    ],
+    "transportName" : "kAudioDeviceTransportTypeBuiltIn",
+    "transportType" : "bltn"
+  },
+  "ownPID" : 11901,
+  "ownProcessObjectID" : 148,
+  "privateAggregate" : true,
+  "privateTap" : true,
+  "rateComparison" : {
+    "declaredRatesEqual" : true,
+    "outputActualRateFirst" : 48000,
+    "outputActualRateLast" : 48000,
+    "outputActualRateMean" : 48000,
+    "outputNominalRate" : 48000,
+    "tapDeclaredRate" : 48000,
+    "tapImpliedFramesPerSecond" : 48000.14827954023,
+    "tapImpliedVsDeclaredPPM" : 3.089157088131955,
+    "tapImpliedVsOutputActualPPM" : 3.089157088131955
+  },
+  "rateSamples" : [
+    {
+      "aggregateActualRate" : 48000,
+      "elapsedSeconds" : 8.762500000000784e-05,
+      "outputActualRate" : 48000
+    },
+    {
+      "aggregateActualRate" : 48000,
+      "elapsedSeconds" : 10.001672417,
+      "outputActualRate" : 48000
+    }
+  ],
+  "requestedSeconds" : 10,
+  "schemaVersion" : 3,
+  "source" : "coreAudioTap",
+  "stats" : {
+    "callbackCount" : 938,
+    "callbackIntervalMs" : {
+      "max" : 10.721083333333334,
+      "median" : 10.666666666666666,
+      "min" : 10.627291666666666
+    },
+    "dropped" : 0,
+    "flagCounts" : {
+
+    },
+    "framesPerCallback" : {
+      "max" : 512,
+      "median" : 512,
+      "min" : 512
+    },
+    "impliedFramesPerSecond" : 48000.14827954023,
+    "inputTime" : {
+      "callbacks" : 938,
+      "hostTimeUsable" : 938,
+      "inNowFit" : {
+        "callbacks" : 938,
+        "driftPPM" : -0.26186149181671464,
+        "driftStdErrPPM" : 0.08578950907482642,
+        "fittedOffsetChangeFrames" : -0.12562609145138706,
+        "residualPeakToPeakFrames" : 3.0608174691321457,
+        "residualSDFrames" : 0.36426516817878196,
+        "resolutionPPM" : 6.380125492925656,
+        "spanSeconds" : 9.994635791666667,
+        "windowResolutionPPM" : 6.37670306069197,
+        "windowSeconds" : 10
+      },
+      "inputFit" : {
+        "callbacks" : 938,
+        "driftPPM" : 1.3331575366301953e-12,
+        "driftStdErrPPM" : 3.790185129074804e-12,
+        "fittedOffsetChangeFrames" : 6.395743292531164e-13,
+        "residualPeakToPeakFrames" : 1.1649791360264413e-10,
+        "residualSDFrames" : 1.6093250524807643e-11,
+        "resolutionPPM" : 2.428334978710398e-10,
+        "spanSeconds" : 9.994666666666667,
+        "windowResolutionPPM" : 2.427039866721753e-10,
+        "windowSeconds" : 10
+      },
+      "noInputTime" : 0,
+      "nowMinusInputHostMs" : {
+        "max" : 10.717083333333333,
+        "median" : 10.6619375,
+        "min" : 10.651875
+      },
+      "sampleTimeMaxMismatchFrames" : 0,
+      "sampleTimeStepMismatches" : 0,
+      "sampleTimeSteps" : 937,
+      "sampleTimeSurplusFrames" : 0,
+      "sampleTimeUsable" : 938
+    },
+    "peak" : 0.6048022508621216,
+    "perSecond" : [
+      {
+        "callbacks" : 94,
+        "frames" : 48128,
+        "peak" : 0.15573999285697937,
+        "peakDBFS" : -16.15199699117606,
+        "rms" : 0.053462257085728715,
+        "rmsDBFS" : -25.439054200334546,
+        "second" : 0,
+        "silent" : false
+      },
+      {
+        "callbacks" : 94,
+        "frames" : 48128,
+        "peak" : 0.1399419605731964,
+        "peakDBFS" : -17.081040919159847,
+        "rms" : 0.04570448115550214,
+        "rmsDBFS" : -26.800824337466,
+        "second" : 1,
+        "silent" : false
+      },
+      {
+        "callbacks" : 94,
+        "frames" : 48128,
+        "peak" : 0.156490296125412,
+        "peakDBFS" : -16.11025175274661,
+        "rms" : 0.04833033332372124,
+        "rmsDBFS" : -26.31560419233779,
+        "second" : 2,
+        "silent" : false
+      },
+      {
+        "callbacks" : 94,
+        "frames" : 48128,
+        "peak" : 0.15054553747177124,
+        "peakDBFS" : -16.446642269661307,
+        "rms" : 0.05223174056635029,
+        "rmsDBFS" : -25.64131003054479,
+        "second" : 3,
+        "silent" : false
+      },
+      {
+        "callbacks" : 93,
+        "frames" : 47616,
+        "peak" : 0.15016889572143555,
+        "peakDBFS" : -16.4684002568151,
+        "rms" : 0.04827074302463404,
+        "rmsDBFS" : -26.326320321941928,
+        "second" : 4,
+        "silent" : false
+      },
+      {
+        "callbacks" : 94,
+        "frames" : 48128,
+        "peak" : 0.14208278059959412,
+        "peakDBFS" : -16.949171044366423,
+        "rms" : 0.04481665438902791,
+        "rmsDBFS" : -26.971211342728516,
+        "second" : 5,
+        "silent" : false
+      },
+      {
+        "callbacks" : 94,
+        "frames" : 48128,
+        "peak" : 0.16031625866889954,
+        "peakDBFS" : -15.90044861815459,
+        "rms" : 0.043519571946791534,
+        "rmsDBFS" : -27.226307699129812,
+        "second" : 6,
+        "silent" : false
+      },
+      {
+        "callbacks" : 94,
+        "frames" : 48128,
+        "peak" : 0.15159572660923004,
+        "peakDBFS" : -16.386260820542187,
+        "rms" : 0.045364124369261745,
+        "rmsDBFS" : -26.865749351533857,
+        "second" : 7,
+        "silent" : false
+      },
+      {
+        "callbacks" : 93,
+        "frames" : 47616,
+        "peak" : 0.1888357698917389,
+        "peakDBFS" : -14.478314735166435,
+        "rms" : 0.05477557780966741,
+        "rmsDBFS" : -25.228260650250995,
+        "second" : 8,
+        "silent" : false
+      },
+      {
+        "callbacks" : 94,
+        "frames" : 48128,
+        "peak" : 0.6048022508621216,
+        "peakDBFS" : -4.367732024238191,
+        "rms" : 0.1677337461395726,
+        "rmsDBFS" : -15.507591068949731,
+        "second" : 9,
+        "silent" : false
+      }
+    ],
+    "rms" : 0.07034564429202123,
+    "silentSeconds" : 0,
+    "totalFrames" : 480256,
+    "windows" : [
+      {
+        "callbacks" : 938,
+        "complete" : false,
+        "cumulativeFrameOffset" : 1.4819999999599531,
+        "frames" : 480256,
+        "impliedFramesPerSecond" : 48000.14827954023,
+        "impliedVsDeclaredPPM" : 3.089157088131955,
+        "inputCallbacks" : 938,
+        "inputCumulativeFrameOffset" : 0,
+        "inputImpliedFramesPerSecond" : 48000,
+        "inputImpliedVsDeclaredPPM" : 0,
+        "inputSpanSeconds" : 9.994666666666667,
+        "spanSeconds" : 9.994635791666667,
+        "startSecond" : 0
+      }
+    ]
+  },
+  "stoppedBy" : "timeout",
+  "tapFormat" : {
+    "bitsPerChannel" : 32,
+    "bytesPerFrame" : 8,
+    "bytesPerPacket" : 8,
+    "channelsPerFrame" : 2,
+    "formatFlags" : 9,
+    "formatID" : "lpcm",
+    "framesPerPacket" : 1,
+    "sampleRate" : 48000
+  },
+  "teardownClean" : true
+}
