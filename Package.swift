@@ -22,6 +22,15 @@ let package = Package(
         // function it cannot prove non-blocking (a compile-time check next to scripts/scan-rt-callback.sh).
         .target(name: "CTapProbe", cSettings: [.unsafeFlags(["-Werror=function-effects"])]),
 
+        // Step 6b-1: system-audio ring (producer IOProc, two per-channel readers; C11 atomics, no calls) plus the Objective-C factory of
+        // the AVAudioSourceNode whose block makes one call into it. Same flags as CTapProbe; -fobjc-arc is explicit so the block's code does not
+        // depend on a default. Not yet used by SpatialAudioEngine (wiring is Step 6b-2); only the engine tests link it.
+        .target(
+            name: "CSystemAudioRing",
+            cSettings: [.unsafeFlags(["-Werror=function-effects", "-fobjc-arc"])],
+            linkerSettings: [.linkedFramework("AVFAudio"), .linkedFramework("CoreAudio")]
+        ),
+
         // Pure logic: no hardware, no AVFoundation/Vision/CoreAudio. Unit-tested.
         .target(name: "SpatialAudioCore", dependencies: ["CPoseMailbox"]),
 
@@ -39,7 +48,7 @@ let package = Package(
 
         .testTarget(name: "SpatialAudioCoreTests", dependencies: ["SpatialAudioCore"]),
         .testTarget(name: "SpatialAudioTrackingTests", dependencies: ["SpatialAudioTracking", "SpatialAudioCore"]),
-        .testTarget(name: "SpatialAudioEngineTests", dependencies: ["SpatialAudioEngine", "SpatialAudioCore", "CTapProbe"]),
+        .testTarget(name: "SpatialAudioEngineTests", dependencies: ["SpatialAudioEngine", "SpatialAudioCore", "CTapProbe", "CSystemAudioRing"]),
     ],
     cLanguageStandard: .c11
 )

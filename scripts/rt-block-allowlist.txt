@@ -1,0 +1,5 @@
+# Allow-list for scripts/scan_rt_block.py (Step 6b ONLY; the rule must be reviewed again before Step 8, see docs/ARCHITECTURE.md "Scan rule for the Step 6b block").
+# One entry per Objective-C render block:   <block invoke symbol> <the ONE symbol that block may call, exactly once>
+# The callee must be defined (nm -U -g) in our own C object and passes the zero-call rule. This file is committed on purpose: it is not a
+# command-line option, so a scan cannot be loosened by an argument; widening it is a reviewed change to this file.
+___SACreateSourceNode_block_invoke _SARingRender
