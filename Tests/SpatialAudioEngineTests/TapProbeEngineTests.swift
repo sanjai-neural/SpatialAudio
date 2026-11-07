@@ -9,10 +9,24 @@ import SpatialAudioCore
 // Everything here is SIMULATED input: it checks the measuring code, never anything about a real Mac. No verdict depends on a clock
 // (the burst source has an exact synthetic timeline); the one threaded test waits on a completion condition.
 
+/// What `inInputTime` looks like to the callback (Step 6a3). `.valid` is the default of every older test: host and sample time both marked valid.
+private struct InputStamp {
+    var flags: AudioTimeStampFlags
+    var host: UInt64
+    var sample: Double
+    static let valid = InputStamp(flags: [.sampleTimeValid, .hostTimeValid], host: 900, sample: 77)
+}
+
+/// The same C function seen through a type whose pointer parameters are optional (identical C ABI), so a test can hand it NULL, which the
+/// non-null-annotated Swift import forbids. The callback's body checks for NULL; this is how that is exercised.
+private typealias NullableIOProc = @convention(c) (UInt32, UnsafePointer<AudioTimeStamp>?, UnsafePointer<AudioBufferList>?, UnsafePointer<AudioTimeStamp>?,
+                                                    UnsafeMutablePointer<AudioBufferList>?, UnsafePointer<AudioTimeStamp>?, UnsafeMutableRawPointer?) -> Int32
+private let nullableProc = unsafeBitCast(SATapProbeIOProc as AudioDeviceIOProc, to: NullableIOProc.self)
+
 /// Builds an AudioBufferList whose buffers hold the given float samples (`nil` = a buffer with mData == NULL of that many samples),
-/// calls the C callback once on it, and frees everything.
+/// calls the C callback once on it, and frees everything. `input: nil` passes a NULL `inInputTime`; `nowIsNull` a NULL `inNow`.
 private func callback(_ probe: OpaquePointer, buffers: [[Float]?], sampleCounts: [Int]? = nil, channelsPerBuffer: UInt32 = 1,
-                      byteSizeOverride: UInt32? = nil, host: UInt64 = 1000) {
+                      byteSizeOverride: UInt32? = nil, host: UInt64 = 1000, input: InputStamp? = .valid, nowIsNull: Bool = false) {
     let abl = AudioBufferList.allocate(maximumBuffers: max(buffers.count, 1))
     var memory: [UnsafeMutableRawPointer] = []
     abl.unsafeMutablePointer.pointee.mNumberBuffers = UInt32(buffers.count)
@@ -28,9 +42,14 @@ private func callback(_ probe: OpaquePointer, buffers: [[Float]?], sampleCounts:
         abl[i] = AudioBuffer(mNumberChannels: channelsPerBuffer, mDataByteSize: byteSizeOverride ?? UInt32(count * 4), mData: data)
     }
     var now = AudioTimeStamp(); now.mHostTime = host
-    var inputTime = now, outputTime = AudioTimeStamp()
+    var inputTime = AudioTimeStamp(), outputTime = AudioTimeStamp()
+    if let input { inputTime.mFlags = input.flags; inputTime.mHostTime = input.host; inputTime.mSampleTime = input.sample }
     var output = AudioBufferList(mNumberBuffers: 0, mBuffers: AudioBuffer())
-    _ = SATapProbeIOProc(0, &now, abl.unsafePointer, &inputTime, &output, &outputTime, UnsafeMutableRawPointer(probe))
+    withUnsafePointer(to: &now) { nowPtr in
+        withUnsafePointer(to: &inputTime) { inPtr in
+            _ = nullableProc(0, nowIsNull ? nil : nowPtr, abl.unsafePointer, input == nil ? nil : inPtr, &output, &outputTime, UnsafeMutableRawPointer(probe))
+        }
+    }
     free(abl.unsafeMutablePointer)
     memory.forEach { $0.deallocate() }
 }
@@ -42,8 +61,86 @@ private func record(_ probe: OpaquePointer, _ index: UInt32 = 0) -> SATapProbeRe
 }
 
 @Suite struct CTapProbeCallbackTests {
-    @Test func theRecordIsThirtyTwoBytesAsDocumented() {
-        #expect(MemoryLayout<SATapProbeRecord>.size == 32)
+    @Test func theRecordIsFortyEightBytesAsDocumented() {
+        #expect(MemoryLayout<SATapProbeRecord>.size == 48 && MemoryLayout<SATapProbeRecord>.stride == 48)      // 32 before Step 6a3
+    }
+
+    // MARK: Step 6a3: the input timestamp. SIMULATED stamps: they check the recording and its validity bits, nothing about real stamps.
+
+    @Test func theCoreFlagValuesAreTheValuesOfTheCMacros() {
+        // SpatialAudioCore cannot import the C target, so its copy of each bit is pinned here (a header edit that changes a macro must fail this).
+        #expect(TapProbeFlag.unsupportedFormat == SA_TAP_FLAG_UNSUPPORTED_FORMAT && TapProbeFlag.nullBuffer == SA_TAP_FLAG_NULL_BUFFER)
+        #expect(TapProbeFlag.nonFiniteSample == SA_TAP_FLAG_NON_FINITE_SAMPLE && TapProbeFlag.noBuffers == SA_TAP_FLAG_NO_BUFFERS)
+        #expect(TapProbeFlag.noTimestamp == SA_TAP_FLAG_NO_TIMESTAMP && TapProbeFlag.noInputTime == SA_TAP_FLAG_NO_INPUT_TIME)
+        #expect(TapProbeFlag.inputHostTimeInvalid == SA_TAP_FLAG_INPUT_HOST_TIME_INVALID && TapProbeFlag.inputSampleTimeInvalid == SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID)
+        let bits = TapProbeFlag.all.map(\.bit)
+        #expect(Set(bits).count == bits.count && bits.allSatisfy { $0.nonzeroBitCount == 1 })        // distinct single bits
+    }
+
+    @Test func aValidInputTimeIsStoredNextToInNowAndTheyAreIndependentFields() throws {
+        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
+        // values beyond 32 bits and beyond float precision: a truncating or narrowing store would change them
+        let bigHost: UInt64 = 0x0123_4567_89AB_CDEF, bigSample = 123_456_789_012.5
+        callback(p, buffers: [[0.5]], host: 5_000, input: InputStamp(flags: [.sampleTimeValid, .hostTimeValid], host: bigHost, sample: bigSample))
+        let r = record(p)
+        #expect(r.hostTime == 5_000 && r.inputHostTime == bigHost && r.inputSampleTime == bigSample && r.flags == 0)
+    }
+
+    @Test func aSampleTimeOfZeroIsValidBecauseTheFlagDecidesNotTheValue() throws {
+        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
+        callback(p, buffers: [[0.5]], input: InputStamp(flags: [.sampleTimeValid, .hostTimeValid], host: 4_242, sample: 0))
+        let r = record(p)
+        #expect(r.inputSampleTime == 0 && r.flags & UInt32(SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID) == 0 && r.flags == 0)
+    }
+
+    @Test func onlyAValidHostTimeLeavesTheSampleTimeInvalidAndStoredAsZero() throws {
+        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
+        callback(p, buffers: [[0.5]], input: InputStamp(flags: [.hostTimeValid], host: 4_242, sample: 55))      // 55 is garbage: not marked valid
+        let r = record(p)
+        #expect(r.flags == SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID && r.inputHostTime == 4_242 && r.inputSampleTime == 0)
+    }
+
+    @Test func onlyAValidSampleTimeLeavesTheHostTimeInvalidAndStoredAsZero() throws {
+        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
+        callback(p, buffers: [[0.5]], input: InputStamp(flags: [.sampleTimeValid], host: 777, sample: 55))
+        let r = record(p)
+        #expect(r.flags == SA_TAP_FLAG_INPUT_HOST_TIME_INVALID && r.inputHostTime == 0 && r.inputSampleTime == 55)
+    }
+
+    @Test func nothingMarkedValidMeansBothInvalidAndNoGarbageIsKept() throws {
+        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
+        callback(p, buffers: [[0.5]], input: InputStamp(flags: [], host: 777, sample: 55))
+        callback(p, buffers: [[0.5]], input: InputStamp(flags: [.rateScalarValid, .wordClockTimeValid, .smpteTimeValid], host: 777, sample: 55))   // other bits do not count
+        for i in 0..<2 as Range<UInt32> {
+            let r = record(p, i)
+            #expect(r.flags == SA_TAP_FLAG_INPUT_HOST_TIME_INVALID | SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID && r.inputHostTime == 0 && r.inputSampleTime == 0)
+        }
+    }
+
+    @Test func aNullInputTimeIsFlaggedWithBothInvalidBitsAndInNowIsStillRecorded() throws {
+        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
+        callback(p, buffers: [[0.5]], host: 5_000, input: nil)
+        let r = record(p)
+        #expect(r.flags == SA_TAP_FLAG_NO_INPUT_TIME | SA_TAP_FLAG_INPUT_HOST_TIME_INVALID | SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID)
+        #expect(r.hostTime == 5_000 && r.inputHostTime == 0 && r.inputSampleTime == 0 && r.samples == 1)
+    }
+
+    @Test func aNullInNowIsFlaggedAndTheInputTimeIsStillRecorded() throws {
+        // Swift could not pass NULL before Step 6a3, so this older branch (SA_TAP_FLAG_NO_TIMESTAMP) had no test at all.
+        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
+        callback(p, buffers: [[0.5]], host: 5_000, input: .valid, nowIsNull: true)
+        let r = record(p)
+        #expect(r.flags == SA_TAP_FLAG_NO_TIMESTAMP && r.hostTime == 0 && r.inputHostTime == 900 && r.inputSampleTime == 77)
+    }
+
+    @Test func inputTimesAreRecordedPerCallbackInOrder() throws {
+        let p = try #require(SATapProbeCreate(8, 4, true)); defer { SATapProbeFree(p) }
+        for k in 0..<3 {
+            callback(p, buffers: [[0.5]], host: UInt64(1000 + k), input: InputStamp(flags: [.sampleTimeValid, .hostTimeValid], host: UInt64(500 + 7 * k), sample: Double(100 * k)))
+        }
+        #expect((0..<3).map { record(p, UInt32($0)).inputHostTime } == [500, 507, 514])
+        #expect((0..<3).map { record(p, UInt32($0)).inputSampleTime } == [0, 100, 200])
+        #expect((0..<3).map { record(p, UInt32($0)).hostTime } == [1000, 1001, 1002])
     }
 
     @Test func nonInterleavedStereoFramesLevelsAndHostTime() throws {
@@ -167,6 +264,23 @@ private final class TestTime: @unchecked Sendable { var t = 0.0 }
         #expect(s.perSecond.map(\.callbacks).reduce(0, +) == 300 && s.perSecond.count == 4)
         #expect(abs((s.impliedFramesPerSecond ?? 0) - 48_000) < 1)
         #expect(r.hostTicksPerSecond == 1_000_000_000)
+    }
+
+    @Test func theBurstSourceStampsTheInputTimeThroughTheRealCallbackAndBothEstimatorsAreComputed() throws {
+        // SIMULATED stamps: the input host time is the ideal timeline minus a fixed 2 ms, the sample time is the frames emitted so far.
+        let r = run()
+        #expect(r.isSimulated)
+        let t = try #require(r.stats?.inputTime)
+        #expect(t.callbacks == 300 && t.hostTimeUsable == 300 && t.sampleTimeUsable == 300 && t.noInputTime == 0)
+        #expect(t.sampleTimeSteps == 299 && t.sampleTimeStepMismatches == 0 && t.sampleTimeSurplusFrames == 0)
+        let lag = try #require(t.nowMinusInputHostMs)
+        #expect(abs(lag.min - 2) < 1e-6 && abs(lag.max - 2) < 1e-6)
+        let a = try #require(t.inNowFit), b = try #require(t.inputFit)
+        #expect(a.callbacks == 300 && b.callbacks == 300)
+        #expect(a.residualPeakToPeakFrames < 1e-3 && b.residualPeakToPeakFrames < 1e-3 && abs(a.driftPPM) < 1e-2 && abs(b.driftPPM) < 1e-2)
+        let flagLine = r.stats?.flagCounts.keys.filter { $0.contains("input") } ?? []
+        #expect(flagLine.isEmpty)                                                              // every input stamp was marked valid
+        #expect(r.markdown().contains("SIMULATED SOURCE"))
     }
 
     @Test func aSineOfAmplitudeQuarterReadsAsQuarterPeakAndItsRms() throws {

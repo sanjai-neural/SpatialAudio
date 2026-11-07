@@ -183,7 +183,8 @@ enum TapProbeRecords {
         for i in 0..<n {
             var r = SATapProbeRecord()
             guard SATapProbeReadRecord(probe, i, &r) else { break }
-            out.append(TapProbeRecord(hostTime: r.hostTime, sumSquares: r.sumSquares, frames: r.frames, samples: r.samples, peak: r.peak, flags: r.flags))
+            out.append(TapProbeRecord(hostTime: r.hostTime, sumSquares: r.sumSquares, frames: r.frames, samples: r.samples, peak: r.peak, flags: r.flags,
+                                       inputHostTime: r.inputHostTime, inputSampleTime: r.inputSampleTime))
         }
         return out
     }

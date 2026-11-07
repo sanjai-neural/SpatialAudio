@@ -41,7 +41,7 @@ OSStatus SATapProbeIOProc(AudioObjectID inDevice,
                           AudioBufferList *outOutputData,
                           const AudioTimeStamp *inOutputTime,
                           void *__nullable inClientData) CA_REALTIME_API {
-    (void)inDevice; (void)inInputTime; (void)outOutputData; (void)inOutputTime;
+    (void)inDevice; (void)outOutputData; (void)inOutputTime;
     SATapProbe *p = (SATapProbe *)inClientData;
     if (!p) return 0;
 
@@ -56,6 +56,18 @@ OSStatus SATapProbeIOProc(AudioObjectID inDevice,
     double sumSquares = 0.0;
 
     if (!inNow) flags |= SA_TAP_FLAG_NO_TIMESTAMP;
+
+    /* Step 6a3: the input timestamp, next to inNow. Validity comes from mFlags only; an invalid field is stored as 0 so garbage never
+     * reaches a reader, and the flag bit says it was not valid. */
+    uint64_t inputHostTime = 0;
+    double inputSampleTime = 0.0;
+    if (!inInputTime) {
+        flags |= SA_TAP_FLAG_NO_INPUT_TIME | SA_TAP_FLAG_INPUT_HOST_TIME_INVALID | SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID;
+    } else {
+        const uint32_t tf = (uint32_t)inInputTime->mFlags;
+        if (tf & kAudioTimeStampHostTimeValid) inputHostTime = inInputTime->mHostTime; else flags |= SA_TAP_FLAG_INPUT_HOST_TIME_INVALID;
+        if (tf & kAudioTimeStampSampleTimeValid) inputSampleTime = inInputTime->mSampleTime; else flags |= SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID;
+    }
     if (!inInputData || inInputData->mNumberBuffers == 0) {
         flags |= SA_TAP_FLAG_NO_BUFFERS;
     } else {
@@ -91,6 +103,8 @@ OSStatus SATapProbeIOProc(AudioObjectID inDevice,
     r->samples = samples;
     r->peak = peak;
     r->flags = flags;
+    r->inputHostTime = inputHostTime;
+    r->inputSampleTime = inputSampleTime;
     atomic_store_explicit(&p->committed, n + 1, memory_order_release);   /* publish only after every field is written */
     return 0;
 }
@@ -114,5 +128,7 @@ bool SATapProbeReadRecord(const SATapProbe *p, uint32_t index, SATapProbeRecord 
     out->samples = r->samples;
     out->peak = r->peak;
     out->flags = r->flags;
+    out->inputHostTime = r->inputHostTime;
+    out->inputSampleTime = r->inputSampleTime;
     return true;
 }

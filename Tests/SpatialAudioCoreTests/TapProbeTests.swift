@@ -156,6 +156,7 @@ final class FakeBackend: TapProbeBackend {
     var actualRates: [(output: Double?, aggregate: Double?)] = []     // returned in order by sampleActualRates; the last one repeats
     private var rateReads = 0
     var records: [TapProbeRecord] = []
+    var hostTicksPerSecond = 1000.0               // ticks per second the fake host clock reports (Step 6a3 tests use 1,000,000)
     // observation
     var log: [String] = []
     var live: Set<String> = []                    // objects currently alive: "tap", "aggregate", "ioproc", "running"
@@ -209,7 +210,7 @@ final class FakeBackend: TapProbeBackend {
         defer { rateReads += 1 }
         return actualRates[min(rateReads, actualRates.count - 1)]
     }
-    func collect() -> TapProbeCollected { log.append("collect"); return TapProbeCollected(records: records, dropped: 0, hostTicksPerSecond: 1000) }
+    func collect() -> TapProbeCollected { log.append("collect"); return TapProbeCollected(records: records, dropped: 0, hostTicksPerSecond: hostTicksPerSecond) }
 }
 
 @Suite struct TapProbeRunnerTests {

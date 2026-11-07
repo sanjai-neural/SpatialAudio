@@ -216,9 +216,9 @@ private func cadence(count: Int, every: UInt64 = 10, frames: UInt32 = 480) -> [T
         }
     }
 
-    @Test func schemaTwoRoundTripsWithAllTheNewFields() throws {
+    @Test func theSchemaRoundTripsWithAllTheStep6a2Fields() throws {
         let r = report()
-        #expect(r.schemaVersion == 2)
+        #expect(r.schemaVersion == 3)                                                       // 2 in Step 6a2; 3 since Step 6a3 (input timestamps)
         let back = try TapProbeReport.decode(r.jsonData())
         #expect(back == r && back.outputDevice?.name == "fake out" && back.rateSamples.count == 4 && back.stats?.windows.count == 3 && back.rateComparison != nil)
         #expect(!String(decoding: try r.jsonData(), as: UTF8.self).contains("NaN"))

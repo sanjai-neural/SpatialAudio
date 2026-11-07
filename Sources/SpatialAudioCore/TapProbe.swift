@@ -11,11 +11,21 @@ public struct TapProbeRecord: Equatable, Sendable {
     public var samples: UInt32
     public var peak: Float
     public var flags: UInt32
+    /// `inInputTime->mHostTime` when the callback found it valid, else 0 (Step 6a3). Same ticks as `hostTime`.
+    public var inputHostTime: UInt64
+    /// `inInputTime->mSampleTime` when the callback found it valid, else 0 (Step 6a3).
+    public var inputSampleTime: Double
 
-    public init(hostTime: UInt64, sumSquares: Double, frames: UInt32, samples: UInt32, peak: Float, flags: UInt32) {
+    public init(hostTime: UInt64, sumSquares: Double, frames: UInt32, samples: UInt32, peak: Float, flags: UInt32,
+                inputHostTime: UInt64 = 0, inputSampleTime: Double = 0) {
         self.hostTime = hostTime; self.sumSquares = sumSquares; self.frames = frames; self.samples = samples
-        self.peak = peak; self.flags = flags
+        self.peak = peak; self.flags = flags; self.inputHostTime = inputHostTime; self.inputSampleTime = inputSampleTime
     }
+
+    /// The input host time may be used: the callback did not flag it invalid, and it is not 0 (0 is the "not stamped" convention, as for `hostTime`).
+    public var inputHostTimeUsable: Bool { flags & TapProbeFlag.inputHostTimeInvalid == 0 && inputHostTime != 0 }
+    /// The input sample time may be used: not flagged invalid by the callback (the VALUE 0 is legitimate, so the flag decides), and finite.
+    public var inputSampleTimeUsable: Bool { flags & TapProbeFlag.inputSampleTimeInvalid == 0 && inputSampleTime.isFinite }
 }
 
 /// Bit values of `SATapProbeRecord.flags` (CTapProbe.h).
@@ -25,9 +35,14 @@ public enum TapProbeFlag {
     public static let nonFiniteSample: UInt32 = 4
     public static let noBuffers: UInt32 = 8
     public static let noTimestamp: UInt32 = 16
+    /// Step 6a3: validity of `inInputTime`, set by the callback from the timestamp's own `mFlags` (a set bit means NOT valid).
+    public static let noInputTime: UInt32 = 32
+    public static let inputHostTimeInvalid: UInt32 = 64
+    public static let inputSampleTimeInvalid: UInt32 = 128
     public static let all: [(name: String, bit: UInt32)] = [
         ("unsupported format", unsupportedFormat), ("null buffer", nullBuffer), ("non-finite sample", nonFiniteSample),
         ("no buffers", noBuffers), ("no timestamp", noTimestamp),
+        ("no input timestamp", noInputTime), ("input host time not valid", inputHostTimeInvalid), ("input sample time not valid", inputSampleTimeInvalid),
     ]
 }
 
@@ -161,6 +176,8 @@ public struct TapProbeStats: Codable, Equatable, Sendable {
     public var silentSeconds: Int
     /// How many callbacks carried each flag.
     public var flagCounts: [String: Int]
+    /// The input timestamps and the two drift estimators side by side (Step 6a3).
+    public var inputTime: TapInputTimeStats? = nil
 }
 
 // MARK: - Device facts, rate samples and 10 s windows (Step 6a2)
@@ -253,6 +270,15 @@ public struct TapWindowStats: Codable, Equatable, Sendable {
     public var cumulativeFrameOffset: Double?
     /// False for the last window (it may be partial).
     public var complete: Bool
+    // Step 6a3: the same window (the same callbacks, bucketed by `inNow`) measured with the INPUT timestamp's host time instead. Nil where
+    // the window holds no usable input host time (fewer than two for the rate figures).
+    /// Callbacks of this window with a usable input host time.
+    public var inputCallbacks: Int? = nil
+    public var inputSpanSeconds: Double? = nil
+    public var inputImpliedFramesPerSecond: Double? = nil
+    public var inputImpliedVsDeclaredPPM: Double? = nil
+    /// Like `cumulativeFrameOffset`, from the input host time; its origin is the first callback with a usable input host time.
+    public var inputCumulativeFrameOffset: Double? = nil
 }
 
 /// The numbers side by side. Not a verdict: see `TapProbeReport.clockLimits`.
@@ -298,12 +324,24 @@ public enum TapProbeAggregator {
 
         // 10 s windows of the callback cadence against the host clock.
         var windows: [TapWindowStats] = []
+        var inNowPoints: [(t: Double, f: Double)] = [], inputPoints: [(t: Double, f: Double)] = []
         if timed, windowSeconds > 0, let base = stamped.first?.hostTime {
-            var byWindow: [Int: [(t: Double, frames: Int, framesBefore: Int)]] = [:]
+            // `inT` / `inFramesBefore`: the same callback seen through the input timestamp (nil / meaningless when it has no usable one);
+            // its origin is the first callback with a usable input host time, so the two estimators describe the same callbacks.
+            var byWindow: [Int: [(t: Double, frames: Int, framesBefore: Int, inT: Double?, inFramesBefore: Int)]] = [:]
             var framesBefore = 0
+            var inputOrigin: (host: UInt64, framesBefore: Int)?
             for r in stamped where r.hostTime >= base {
                 let t = Double(r.hostTime - base) / hostTicksPerSecond
-                byWindow[Int(t / windowSeconds), default: []].append((t, Int(r.frames), framesBefore))
+                var inT: Double?
+                if r.inputHostTimeUsable {
+                    if inputOrigin == nil { inputOrigin = (r.inputHostTime, framesBefore) }
+                    if let o = inputOrigin, r.inputHostTime >= o.host { inT = Double(r.inputHostTime - o.host) / hostTicksPerSecond }
+                }
+                let inFramesBefore = framesBefore - (inputOrigin?.framesBefore ?? 0)
+                byWindow[Int(t / windowSeconds), default: []].append((t, Int(r.frames), framesBefore, inT, inFramesBefore))
+                inNowPoints.append((t, Double(framesBefore)))
+                if let inT { inputPoints.append((inT, Double(inFramesBefore))) }
                 framesBefore += Int(r.frames)
             }
             let keys = byWindow.keys.sorted()
@@ -313,12 +351,22 @@ public enum TapProbeAggregator {
                 var implied: Double?
                 if rows.count > 1, span > 0 { implied = Double(rows.dropLast().reduce(0) { $0 + $1.frames }) / span }
                 let last = rows.last!
+                let inRows = rows.filter { $0.inT != nil }
+                var inSpan: Double?, inImplied: Double?, inOffset: Double?
+                if let f = inRows.first, let l = inRows.last, let ft = f.inT, let lt = l.inT {
+                    inSpan = lt - ft
+                    if inRows.count > 1, lt - ft > 0 { inImplied = Double(l.inFramesBefore - f.inFramesBefore) / (lt - ft) }
+                    if (declaredRate ?? 0) > 0 { inOffset = Double(l.inFramesBefore) - declaredRate! * lt }
+                }
                 windows.append(TapWindowStats(
                     startSecond: Int(Double(w) * windowSeconds), callbacks: rows.count, frames: rows.reduce(0) { $0 + $1.frames }, spanSeconds: span,
                     impliedFramesPerSecond: implied,
                     impliedVsDeclaredPPM: (implied != nil && (declaredRate ?? 0) > 0) ? (implied! / declaredRate! - 1) * 1e6 : nil,
                     cumulativeFrameOffset: (declaredRate ?? 0) > 0 ? Double(last.framesBefore) - declaredRate! * last.t : nil,
-                    complete: w != keys.last))
+                    complete: w != keys.last,
+                    inputCallbacks: inRows.count, inputSpanSeconds: inSpan, inputImpliedFramesPerSecond: inImplied,
+                    inputImpliedVsDeclaredPPM: (inImplied != nil && (declaredRate ?? 0) > 0) ? (inImplied! / declaredRate! - 1) * 1e6 : nil,
+                    inputCumulativeFrameOffset: inOffset))
             }
         }
 
@@ -340,7 +388,9 @@ public enum TapProbeAggregator {
             callbackIntervalMs: MinMedianMax(intervals),
             totalFrames: records.reduce(0) { $0 + Int($1.frames) }, impliedFramesPerSecond: implied,
             peak: Double(records.map(\.peak).max() ?? 0), rms: totalSamples > 0 ? (totalSq / Double(totalSamples)).squareRoot() : nil,
-            perSecond: perSecond, windows: windows, silentSeconds: perSecond.filter(\.silent).count, flagCounts: flagCounts)
+            perSecond: perSecond, windows: windows, silentSeconds: perSecond.filter(\.silent).count, flagCounts: flagCounts,
+            inputTime: TapInputTimeStats.make(records: records, hostTicksPerSecond: timed ? hostTicksPerSecond : 0, declaredRate: declaredRate,
+                                              windowSeconds: windowSeconds, inNowPoints: inNowPoints, inputPoints: inputPoints))
     }
 }
 
@@ -367,8 +417,8 @@ public struct TapProbeLists: Codable, Equatable, Sendable {
 }
 
 public struct TapProbeReport: Codable, Equatable, Sendable {
-    /// 1: Step 6a. 2: Step 6a2 (device facts, rate samples, 10 s windows, rate comparison).
-    public var schemaVersion = 2
+    /// 1: Step 6a. 2: Step 6a2 (device facts, rate samples, 10 s windows, rate comparison). 3: Step 6a3 (input timestamps: per-window input columns, `stats.inputTime`).
+    public var schemaVersion = 3
     public var kind = "system-audio tap probe (Step 6a)"
     public var createdAt: String
     /// "coreAudioTap" for the real thing, "simulated" for the test source (a SIMULATED report decides nothing).
@@ -437,7 +487,17 @@ public struct TapProbeReport: Codable, Equatable, Sendable {
         "The callback cadence is measured against the HOST clock (the callbacks' own host timestamps). That shows whether the tap's callbacks are regular and whether their frame rate matches the declared rate against the host clock. It does NOT show whether the tap and the output device share a clock.",
         "`kAudioDevicePropertyClockDomain`: devices with the same non-zero value \"are able to be synchronized in hardware\"; 0 means unspecified and is to be treated as separate from every other device (header). An equal non-zero value would mean \"able to be synchronized\", not that they ARE; a 0 on either side settles nothing.",
         "`kAudioDevicePropertyActualSampleRate` is \"as measured by its time stamps\" (header). That it is measured against the host clock is a reading of those words, UNVERIFIED. Two readings that differ are a difference of readings, not a measured drift.",
-        "Drift needs a MEASURED SERIES: the 10 s windows and the cumulative frame offset of a long run (600 s) are that series; one reading, or a short run, supports no drift claim. A SIMULATED run supports none at all. The offset has noise of about one callback's scheduling jitter (it does not accumulate).",
+        "Drift needs a MEASURED SERIES: the 10 s windows and the cumulative frame offset of a long run (600 s) are that series; one reading, or a short run, supports no drift claim. A SIMULATED run supports none at all. The offset has noise from the stamps' own jitter (it does not accumulate; its size is measured in the estimator table below).",
+    ]
+
+    /// Printed in every report after `clockLimits` (Step 6a3): what each of the two estimators measures and cannot resolve. The numbers are computed from the run (see `estimatorStatements`).
+    public static let estimatorLimits = [
+        "Both estimators compare the frames the tap delivered with a HOST-clock timestamp per callback (mach_absolute_time ticks). They measure the tap's frame rate against the host clock. Neither involves the output device's clock, so neither can say whether the tap and the output device drift apart.",
+        "inNow (`inNow`: \"An AudioTimeStamp that indicates the IO cycle started. Note that this time includes any scheduling latency that may have been incurred waking the thread\", AudioHardware.h): a constant latency cancels out of a rate, its variation from callback to callback does not. That variation is noise in every window and in the cumulative offset.",
+        "Input host time (`inInputTime`: \"the time at which the first frame in the data was acquired from the hardware\", zeroed out if the device has no input streams, AudioHardware.h): it may be steadier than `inNow` because it does not include waking the thread. What it refers to for a tap-only aggregate device with no declared time source is not documented in the headers, and whether the HAL smooths it with its own clock model is UNVERIFIED. If the input stamps are very smooth, that may be the HAL's model and not an independent measurement of a device: a straight line is not proof of a steady clock.",
+        "What a series can resolve: a drift smaller than (peak-to-peak jitter of the offset about its fitted line) / (declared rate x time) cannot be told from the jitter. That floor is computed from the measured series, for the whole run and for one window; a short run has a large floor because time is in the denominator. The standard error assumes independent jitter (UNVERIFIED); the floor does not.",
+        "Not resolved by either estimator: the output device's drift against the host clock, drift between the tap and the output device, a change of the HAL's own rate estimate during the run (it is folded into the slope), and non-linear drift (the slope is one number per run; the window table shows whether the rate moves).",
+        "Sample-time continuity checks that the HAL's sample counter advanced by the frames the callbacks delivered. It says nothing about how fast the clock runs. The input `mRateScalar` (the HAL's own rate ratio, if it is marked valid) is NOT recorded in this step.",
     ]
 
     public static func fileStem(date: Date, timeZone: TimeZone = .current, simulated: Bool) -> String {
@@ -523,15 +583,36 @@ extension TapProbeReport {
         if outputDevice == nil && aggregateDevice == nil { L.append("- no device facts were read") }
         if let c = rateComparison {
             L.append("")
-            L.append("**Rates (numbers side by side, not a verdict):** tap declared \(f(c.tapDeclaredRate, "%.1f")) Hz; output nominal \(f(c.outputNominalRate, "%.1f")) Hz (equal: \(yn(c.declaredRatesEqual))); tap implied \(f(c.tapImpliedFramesPerSecond, "%.2f")) frames/s (\(f(c.tapImpliedVsDeclaredPPM, "%+.1f")) ppm against the declared rate); output actual first / last / mean \(f(c.outputActualRateFirst, "%.3f")) / \(f(c.outputActualRateLast, "%.3f")) / \(f(c.outputActualRateMean, "%.3f")) Hz; tap implied against output actual mean: \(f(c.tapImpliedVsOutputActualPPM, "%+.1f")) ppm.")
+            L.append("**Rates (numbers side by side, not a verdict):** tap declared \(f(c.tapDeclaredRate, "%.1f")) Hz; output nominal \(f(c.outputNominalRate, "%.1f")) Hz (equal: \(yn(c.declaredRatesEqual))); tap implied \(f(c.tapImpliedFramesPerSecond, "%.2f")) frames/s (\(f(c.tapImpliedVsDeclaredPPM, "%+.1f")) ppm against the declared rate); output actual first / last / mean \(f(c.outputActualRateFirst, "%.3f")) / \(f(c.outputActualRateLast, "%.3f")) / \(f(c.outputActualRateMean, "%.3f")) Hz; tap implied against output actual mean: \(f(c.tapImpliedVsOutputActualPPM, "%+.1f")) ppm. The tap's implied rate here is an ENDPOINT estimate (first and last callback only, stamped by `inNow`): its uncertainty is the jitter of those two stamps over the run length, so read it against the fitted drift and the resolution floor in the estimator table below, not on its own.")
         }
         if let w = stats?.windows, !w.isEmpty {
             L.append("")
-            L.append("| window start (s) | callbacks | frames | span (s) | implied frames/s | vs declared (ppm) | cumulative frame offset | complete |")
-            L.append("|---|---|---|---|---|---|---|---|")
+            L.append("Windows are formed by the `inNow` time for BOTH estimators, so both describe the same callbacks. `inNow` columns: stamp = the IO cycle start. `input` columns: stamp = the input timestamp's host time (Step 6a3; origin = the first callback that had a usable one).")
+            L.append("")
+            L.append("| window start (s) | callbacks | frames | inNow span (s) | inNow implied frames/s | inNow vs declared (ppm) | inNow cumulative frame offset | input callbacks | input span (s) | input implied frames/s | input vs declared (ppm) | input cumulative frame offset | complete |")
+            L.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
             for x in w {
-                L.append("| \(x.startSecond) | \(x.callbacks) | \(x.frames) | \(f(x.spanSeconds, "%.3f")) | \(f(x.impliedFramesPerSecond, "%.2f")) | \(f(x.impliedVsDeclaredPPM, "%+.1f")) | \(f(x.cumulativeFrameOffset, "%+.1f")) | \(x.complete ? "yes" : "no (last)") |")
+                L.append("| \(x.startSecond) | \(x.callbacks) | \(x.frames) | \(f(x.spanSeconds, "%.3f")) | \(f(x.impliedFramesPerSecond, "%.2f")) | \(f(x.impliedVsDeclaredPPM, "%+.1f")) | \(f(x.cumulativeFrameOffset, "%+.1f")) | \(n(x.inputCallbacks)) | \(f(x.inputSpanSeconds, "%.3f")) | \(f(x.inputImpliedFramesPerSecond, "%.2f")) | \(f(x.inputImpliedVsDeclaredPPM, "%+.1f")) | \(f(x.inputCumulativeFrameOffset, "%+.1f")) | \(x.complete ? "yes" : "no (last)") |")
             }
+        }
+        if let t = stats?.inputTime {
+            L.append("")
+            L.append("**Input timestamps and the two estimators (Step 6a3):**")
+            L.append("- `inInputTime` on \(t.callbacks) callbacks: host time usable on \(t.hostTimeUsable), sample time usable on \(t.sampleTimeUsable), no `inInputTime` pointer on \(t.noInputTime) (the invalid-flag counts are in section 2's flag line).")
+            L.append("- `inNow` minus input host time, ms (min / median / max): \(t.nowMinusInputHostMs.map { String(format: "%.3f / %.3f / %.3f", $0.min, $0.median, $0.max) } ?? "—")")
+            L.append("- Sample-time continuity: \(t.sampleTimeSteps) consecutive pairs; \(t.sampleTimeStepMismatches) advanced by something other than the frames delivered (surplus \(f(t.sampleTimeSurplusFrames, "%+.1f")) frames in total, largest \(f(t.sampleTimeMaxMismatchFrames, "%.1f")) frames).")
+            L.append("")
+            L.append("| estimator | callbacks | span (s) | drift (ppm) | 1 s.e. (ppm) | offset SD (frames) | offset peak-to-peak (frames) | floor, whole run (ppm) | floor, one window (ppm) | fitted offset change (frames) |")
+            L.append("|---|---|---|---|---|---|---|---|---|---|")
+            for (name, fit) in [("inNow", t.inNowFit), ("input host time", t.inputFit)] {
+                if let x = fit {
+                    L.append("| \(name) | \(x.callbacks) | \(f(x.spanSeconds, "%.1f")) | \(f(x.driftPPM, "%+.2f")) | \(f(x.driftStdErrPPM, "%.2f")) | \(f(x.residualSDFrames, "%.2f")) | \(f(x.residualPeakToPeakFrames, "%.1f")) | \(f(x.resolutionPPM, "%.2f")) | \(f(x.windowResolutionPPM, "%.1f")) | \(f(x.fittedOffsetChangeFrames, "%+.1f")) |")
+                } else {
+                    L.append("| \(name) | — | — | — | — | — | — | — | — | — |")
+                }
+            }
+            L.append("")
+            for x in estimatorStatements { L.append("- \(x)") }
         }
         if !rateSamples.isEmpty {
             L.append("")
@@ -542,6 +623,9 @@ extension TapProbeReport {
         L.append("")
         L.append("**What this does and does not show:**")
         for x in Self.clockLimits { L.append("- \(x)") }
+        L.append("")
+        L.append("**What each estimator can and cannot resolve (Step 6a3):**")
+        for x in Self.estimatorLimits { L.append("- \(x)") }
         L.append("")
         L.append("## 5. Teardown")
         L.append("- **Clean:** \(teardownClean ? "YES" : "NO")")
@@ -558,5 +642,28 @@ extension TapProbeReport {
         for a in assumptions { L.append("- \(a)") }
         L.append("")
         return L.joined(separator: "\n")
+    }
+}
+
+extension TapProbeReport {
+    /// The numbers of this run in words (Step 6a3): what each estimator could resolve. Computed from `stats.inputTime`; no claim beyond the series.
+    public var estimatorStatements: [String] {
+        guard let t = stats?.inputTime else { return [] }
+        func f(_ x: Double, _ fmt: String) -> String { String(format: fmt, x) }
+        var out: [String] = []
+        for (name, fit) in [("inNow", t.inNowFit), ("Input host time", t.inputFit)] {
+            guard let x = fit else {
+                out.append("\(name): no estimator (fewer than three usable stamps, or no declared rate): nothing can be said from this stamp in this run.")
+                continue
+            }
+            let verdict = abs(x.fittedOffsetChangeFrames) > x.residualPeakToPeakFrames
+                ? "larger than the jitter" : "NOT larger than the jitter, so this series does not distinguish it from jitter"
+            out.append("\(name): over \(f(x.spanSeconds, "%.1f")) s the offset scatters by \(f(x.residualPeakToPeakFrames, "%.1f")) frames peak-to-peak (SD \(f(x.residualSDFrames, "%.2f"))). A drift smaller than about \(f(x.resolutionPPM, "%.2f")) ppm over this run, or smaller than about \(f(x.windowResolutionPPM, "%.1f")) ppm within one \(f(x.windowSeconds, "%.0f")) s window, cannot be told from that jitter. The fitted slope is \(f(x.driftPPM, "%+.2f")) ppm (± \(f(x.driftStdErrPPM, "%.2f")) ppm, 1 s.e.); it moved the offset by \(f(x.fittedOffsetChangeFrames, "%+.1f")) frames against \(f(x.residualPeakToPeakFrames, "%.1f")) frames of jitter: \(verdict). That is the tap against the HOST clock only.")
+        }
+        if let a = t.inNowFit, let b = t.inputFit {
+            let share = a.residualPeakToPeakFrames > 0 ? " (the input estimator's peak-to-peak is \(f(b.residualPeakToPeakFrames / a.residualPeakToPeakFrames * 100, "%.1f")) % of inNow's)" : ""
+            out.append("Side by side, offset peak-to-peak: inNow \(f(a.residualPeakToPeakFrames, "%.1f")) frames, input host time \(f(b.residualPeakToPeakFrames, "%.1f")) frames\(share). What `inNow` shows and the input stamps do not is the part of the noise the two stamps do not share; whether that part is scheduling jitter is the header's description of `inNow`, not something this probe separates out.")
+        }
+        return out
     }
 }

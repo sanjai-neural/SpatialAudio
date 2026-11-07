@@ -11,8 +11,9 @@
  * `SATapProbeIOProc` is an `AudioDeviceIOProc` (CoreAudio/AudioHardware.h, marked CA_REALTIME_API there). It runs on Core
  * Audio's IO thread, so it follows the project's Real-time rule (docs/ARCHITECTURE.md): plain structs, raw pointers and
  * C11 atomics only. No allocation, locks, logging, Objective-C, Swift or calls into any library. It only MEASURES: for
- * every callback it stores one SATapProbeRecord (host time, frames, sample count, peak, sum of squares, flags) into a
- * buffer that the control thread allocated up front. It never touches the audio itself.
+ * every callback it stores one SATapProbeRecord (the host time of inNow, the host time and sample time of inInputTime with
+ * their validity, frames, sample count, peak, sum of squares, flags) into a buffer that the control thread allocated up
+ * front. It never touches the audio itself.
  *
  *  - Exactly one thread (Core Audio's IO thread, or the simulated source's thread) calls SATapProbeIOProc for a given probe.
  *  - The control thread creates and frees the probe and reads records. It may read record i only after
@@ -27,6 +28,12 @@
 #define SA_TAP_FLAG_NON_FINITE_SAMPLE   4u   /* at least one NaN or infinite sample: left out of peak and RMS */
 #define SA_TAP_FLAG_NO_BUFFERS          8u   /* the callback got no input buffers at all */
 #define SA_TAP_FLAG_NO_TIMESTAMP       16u   /* inNow was NULL: hostTime is 0 */
+/* Step 6a3: validity of inInputTime, from its mFlags (CoreAudioBaseTypes.h: kAudioTimeStampHostTimeValid, kAudioTimeStampSampleTimeValid),
+ * never from the value (a sample time of 0 is legitimate). A field whose bit is set here was NOT valid and is stored as 0.
+ * If inInputTime itself was NULL all three bits are set. A reader tests validity as "the INVALID bit is clear". */
+#define SA_TAP_FLAG_NO_INPUT_TIME            32u   /* inInputTime was NULL */
+#define SA_TAP_FLAG_INPUT_HOST_TIME_INVALID  64u   /* kAudioTimeStampHostTimeValid not set (or no inInputTime): inputHostTime is 0 */
+#define SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID 128u /* kAudioTimeStampSampleTimeValid not set (or no inInputTime): inputSampleTime is 0 */
 
 #pragma clang assume_nonnull begin
 
@@ -37,7 +44,9 @@ typedef struct {
     uint32_t samples;       /* finite samples that went into peak and sumSquares (so RMS = sqrt(sumSquares / samples)) */
     float    peak;          /* largest absolute finite sample */
     uint32_t flags;         /* SA_TAP_FLAG_* */
-} SATapProbeRecord;         /* 32 bytes */
+    uint64_t inputHostTime; /* inInputTime->mHostTime when valid (same ticks as hostTime), else 0: "the time at which the first frame in the data was acquired from the hardware" (AudioHardware.h) */
+    double   inputSampleTime; /* inInputTime->mSampleTime when valid, else 0 */
+} SATapProbeRecord;         /* 48 bytes (Step 6a3; 32 before) */
 
 typedef struct SATapProbe SATapProbe;
 

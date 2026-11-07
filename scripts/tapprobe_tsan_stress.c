@@ -5,6 +5,9 @@
  *    times on synthetic buffers whose content is a pure function of the call index, with capacity for fewer records than calls.
  *  - The READER thread plays the control thread: it polls SATapProbeCommitted and reads every newly published record with
  *    SATapProbeReadRecord WHILE the writer is still writing, and checks each record against what call number `i` must have stored.
+ *  - Step 6a3: every call also carries an input timestamp whose validity cycles with the call index (both valid, host only, sample only,
+ *    none), so the check covers inputHostTime, inputSampleTime and the validity bits of the flags as well: a torn record, a field from another
+ *    call, or a field published early is a wrong record.
  *
  * Exit 0 = every record was whole, in order, nothing was published early, overflow was counted. TSan exits 66 on a data race.
  * No sleeps: the reader spins until the writer says it is done (a completion flag), then drains.
@@ -25,6 +28,15 @@ static atomic_bool gWriterDone;
 
 static float levelFor(uint32_t i) { return (float)((i % 7u) + 1u) / 8.0f; }
 
+/* The input timestamp call i carries: values are pure functions of i; validity cycles through all four combinations. */
+static uint64_t inputHostFor(uint32_t i)   { return 1000000u + 3u * (uint64_t)i; }
+static double   inputSampleFor(uint32_t i) { return 8.0 * (double)i; }
+static bool     hostValidFor(uint32_t i)   { return (i % 4u) == 0u || (i % 4u) == 1u; }
+static bool     sampleValidFor(uint32_t i) { return (i % 4u) == 0u || (i % 4u) == 2u; }
+static uint32_t expectedFlags(uint32_t i) {
+    return (hostValidFor(i) ? 0u : SA_TAP_FLAG_INPUT_HOST_TIME_INVALID) | (sampleValidFor(i) ? 0u : SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID);
+}
+
 static void *writer(void *arg) {
     (void)arg;
     float samples[kFrames];
@@ -39,8 +51,12 @@ static void *writer(void *arg) {
         for (uint32_t s = 0; s < kFrames; s++) samples[s] = v;
         AudioTimeStamp now = { 0 };
         now.mHostTime = (uint64_t)i + 1u;
+        AudioTimeStamp input = { 0 };
+        input.mFlags = (hostValidFor(i) ? kAudioTimeStampHostTimeValid : 0) | (sampleValidFor(i) ? kAudioTimeStampSampleTimeValid : 0);
+        input.mHostTime = inputHostFor(i);          /* present even when not marked valid: the callback must not keep it */
+        input.mSampleTime = inputSampleFor(i);
         AudioTimeStamp other = now;
-        SATapProbeIOProc(0, &now, &list, &other, &out, &other, gProbe);
+        SATapProbeIOProc(0, &now, &list, &input, &out, &other, gProbe);
     }
     atomic_store_explicit(&gWriterDone, true, memory_order_release);
     return NULL;
@@ -51,11 +67,15 @@ static int gFailures;
 static void check(uint32_t i, const SATapProbeRecord *r) {
     const float v = levelFor(i);
     const double expectSq = (double)kFrames * (double)v * (double)v;
-    if (r->hostTime != (uint64_t)i + 1u || r->frames != kFrames || r->samples != kFrames || r->peak != v || r->flags != 0 ||
-        r->sumSquares < expectSq - 1e-9 || r->sumSquares > expectSq + 1e-9) {
+    const uint64_t wantInputHost = hostValidFor(i) ? inputHostFor(i) : 0u;
+    const double wantInputSample = sampleValidFor(i) ? inputSampleFor(i) : 0.0;
+    if (r->hostTime != (uint64_t)i + 1u || r->frames != kFrames || r->samples != kFrames || r->peak != v || r->flags != expectedFlags(i) ||
+        r->sumSquares < expectSq - 1e-9 || r->sumSquares > expectSq + 1e-9 ||
+        r->inputHostTime != wantInputHost || r->inputSampleTime != wantInputSample) {
         if (gFailures++ < 5)
-            fprintf(stderr, "record %u is not what call %u stored: hostTime %llu frames %u samples %u peak %f sumSq %f flags %u\n",
-                    i, i, (unsigned long long)r->hostTime, r->frames, r->samples, r->peak, r->sumSquares, r->flags);
+            fprintf(stderr, "record %u is not what call %u stored: hostTime %llu frames %u samples %u peak %f sumSq %f flags %u (want %u) inputHost %llu (want %llu) inputSample %f (want %f)\n",
+                    i, i, (unsigned long long)r->hostTime, r->frames, r->samples, r->peak, r->sumSquares, r->flags, expectedFlags(i),
+                    (unsigned long long)r->inputHostTime, (unsigned long long)wantInputHost, r->inputSampleTime, wantInputSample);
     }
 }
 

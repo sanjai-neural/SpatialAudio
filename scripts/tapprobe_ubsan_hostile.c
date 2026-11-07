@@ -30,6 +30,34 @@ static uint32_t framesFor(SATapProbe *p, uint32_t channels, uint32_t byteSize, f
     return r.frames;
 }
 
+/* Step 6a3: NULL timestamps. The callback must not dereference a NULL inNow or inInputTime (a crash here fails the harness) and must flag them. */
+static uint32_t flagsWithNullStamps(SATapProbe *p, bool nullNow, bool nullInput, uint64_t *inputHostOut, double *inputSampleOut) {
+    float samples[8] = { 0 };
+    AudioBufferList list;
+    list.mNumberBuffers = 1;
+    list.mBuffers[0].mNumberChannels = 1;
+    list.mBuffers[0].mDataByteSize = sizeof samples;
+    list.mBuffers[0].mData = samples;
+    AudioBufferList out = { 0 };
+    AudioTimeStamp now = { 0 };
+    now.mHostTime = 5;
+    AudioTimeStamp input = { 0 };
+    input.mFlags = kAudioTimeStampSampleHostTimeValid;
+    input.mHostTime = 7;
+    input.mSampleTime = 9;
+    AudioTimeStamp other = now;
+    SATapProbeIOProc(0, nullNow ? NULL : &now, &list, nullInput ? NULL : &input, &out, &other, p);
+    SATapProbeRecord r;
+    if (!SATapProbeReadRecord(p, SATapProbeCommitted(p) - 1, &r)) { fprintf(stderr, "no record published\n"); gFailures++; return 0; }
+    *inputHostOut = r.inputHostTime; *inputSampleOut = r.inputSampleTime;
+    return r.flags;
+}
+
+static void expectFlags(const char *what, uint32_t got, uint32_t want) {
+    printf("%-58s flags = %u (expected %u)\n", what, got, want);
+    if (got != want) gFailures++;
+}
+
 static void expect(const char *what, uint32_t got, uint32_t want) {
     printf("%-58s frames = %u (expected %u)\n", what, got, want);
     if (got != want) gFailures++;
@@ -46,6 +74,18 @@ int main(void) {
     /* The case a 32-bit product turns into a division by zero: 4 * 0x40000000 == 2^32 == 0 (mod 2^32). */
     expect("channels = 0x40000000 (32-bit product wraps to ZERO)", framesFor(p, 0x40000000u, 64, samples), 0);
     SATapProbeFree(p);
+
+    SATapProbe *q = SATapProbeCreate(16, 4, true);
+    if (!q) { fprintf(stderr, "create failed\n"); return 3; }
+    uint64_t ih = 123; double is = 456;
+    expectFlags("NULL inInputTime", flagsWithNullStamps(q, false, true, &ih, &is),
+                SA_TAP_FLAG_NO_INPUT_TIME | SA_TAP_FLAG_INPUT_HOST_TIME_INVALID | SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID);
+    if (ih != 0 || is != 0.0) { printf("NULL inInputTime: input fields not zero (%llu, %f)\n", (unsigned long long)ih, is); gFailures++; }
+    expectFlags("NULL inNow", flagsWithNullStamps(q, true, false, &ih, &is), SA_TAP_FLAG_NO_TIMESTAMP);
+    if (ih != 7 || is != 9.0) { printf("NULL inNow: input fields lost (%llu, %f)\n", (unsigned long long)ih, is); gFailures++; }
+    expectFlags("both NULL", flagsWithNullStamps(q, true, true, &ih, &is),
+                SA_TAP_FLAG_NO_TIMESTAMP | SA_TAP_FLAG_NO_INPUT_TIME | SA_TAP_FLAG_INPUT_HOST_TIME_INVALID | SA_TAP_FLAG_INPUT_SAMPLE_TIME_INVALID);
+    SATapProbeFree(q);
 
     /* A zero sample size: the fixed library refuses to create such a probe; the older one accepted it and guarded in the callback. */
     SATapProbe *zero = SATapProbeCreate(16, 0, false);

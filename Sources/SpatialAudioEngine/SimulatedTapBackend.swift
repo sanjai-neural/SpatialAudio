@@ -116,6 +116,8 @@ public final class SimulatedTapBackend: TapProbeBackend {
 /// Builds synthetic AudioBufferLists and calls the C callback from its own thread.
 private final class Emitter: @unchecked Sendable {
     static let syntheticTicksPerSecond = 1_000_000_000.0
+    /// Burst pacing: the synthetic input time is this many ticks (2 ms at the synthetic 1e9 ticks/s) before the synthetic `inNow`.
+    static let syntheticInputLatencyTicks: UInt64 = 2_000_000
 
     private let probe: OpaquePointer
     private let format: TapFormat
@@ -189,7 +191,15 @@ private final class Emitter: @unchecked Sendable {
             case .burst: now.mHostTime = UInt64(1_000_000_000) + UInt64((Double(k) * Double(frames) / rate * Emitter.syntheticTicksPerSecond).rounded())
             case .realTime: now.mHostTime = AudioGetCurrentHostTime()
             }
-            var inputTime = now, outputTime = AudioTimeStamp()
+            // SIMULATED input timestamp (labelled like everything else here): sample time = frames emitted so far; host time = the IDEAL timeline
+            // minus a fixed synthetic latency, so it carries none of the real-time pacing jitter that `inNow` does. Fabricated: it says nothing about
+            // what a real tap's stamps look like.
+            var inputTime = AudioTimeStamp()
+            inputTime.mFlags = [.sampleTimeValid, .hostTimeValid]
+            inputTime.mSampleTime = Double(k * frames)
+            inputTime.mHostTime = UInt64(1_000_000_000) + UInt64((Double(k) * Double(frames) / rate * Emitter.syntheticTicksPerSecond).rounded()) - Emitter.syntheticInputLatencyTicks
+            if case .realTime = pacing { inputTime.mHostTime = startHost + UInt64((Double(k) * Double(frames) / rate * hostTicks).rounded()) }
+            var outputTime = AudioTimeStamp()
             var output = AudioBufferList(mNumberBuffers: 0, mBuffers: AudioBuffer())          // a tap has no output streams
             _ = SATapProbeIOProc(0, &now, abl.unsafePointer, &inputTime, &output, &outputTime, UnsafeMutableRawPointer(probe))
             k += 1
