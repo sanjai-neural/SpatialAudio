@@ -49,7 +49,8 @@ public final class DispatchRingTicker: RingProbeTicker, @unchecked Sendable {
         if t != nil, DispatchQueue.getSpecific(key: key) == nil { queue.sync {} }      // a handler that is already running has finished when this returns
     }
 
-    private func post(tick: Bool, signal: Bool, interrupt: Bool) {
+    /// Internal (not private) so the tests can put an exact combination of pending events in place without a timer; production code only calls it from this class.
+    func post(tick: Bool, signal: Bool, interrupt: Bool) {
         condition.lock()
         if tick { tickPending = true }
         if signal { signalPending = true }

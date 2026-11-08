@@ -244,6 +244,28 @@ private func matches(_ got: [Float], channel: UInt32, gain g: Float) -> Bool {
         b.stop()
     }
 
+    @Test func everyCombinationOfPendingEventsIsDeliveredInPriorityOrderWithoutATimer() {
+        // Events are posted directly, so a tick really is pending alongside the others (the timer-based test above cannot guarantee that). R26b (a tick returned
+        // before a stop request or an interrupt) survived the timer-based test for exactly that reason.
+        let all = DispatchRingTicker()
+        all.post(tick: true, signal: true, interrupt: true)
+        #expect(all.wait() == .signal && all.wait() == .signal, "a stop request beats an interrupt and a tick, and stays pending")
+        let signalAndTick = DispatchRingTicker()
+        signalAndTick.post(tick: true, signal: true, interrupt: false)
+        #expect(signalAndTick.wait() == .signal && signalAndTick.wait() == .signal)
+        let interruptAndTick = DispatchRingTicker()
+        interruptAndTick.post(tick: true, signal: false, interrupt: true)
+        #expect(interruptAndTick.wait() == .interrupt && interruptAndTick.wait() == .interrupt, "an interrupt beats a tick, and stays pending")
+        let signalAndInterrupt = DispatchRingTicker()
+        signalAndInterrupt.post(tick: false, signal: true, interrupt: true)
+        #expect(signalAndInterrupt.wait() == .signal)
+        let tickOnly = DispatchRingTicker()
+        tickOnly.post(tick: true, signal: false, interrupt: false)
+        #expect(tickOnly.wait() == .tick)
+        tickOnly.post(tick: false, signal: false, interrupt: true)     // the tick was consumed: only the interrupt is left
+        #expect(tickOnly.wait() == .interrupt)
+    }
+
     @Test func aTimerThatWasStoppedCanBeStartedAgainAndStopIsIdempotent() async {
         let ticker = DispatchRingTicker()
         ticker.stop(); ticker.stop()
