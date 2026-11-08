@@ -1,7 +1,8 @@
 #!/bin/zsh
 # ThreadSanitizer run of the Step 6b-1 ring: the real producer IOProc and the two real readers on separate threads (scripts/systemaudioring_stress.c).
-# Exit 0 = every check passed and TSan reported nothing (TSan itself exits 66 on a race). `swift test --sanitize=thread` does not instrument C targets
-# (same finding as for the pose mailbox and the tap probe), so the C file is compiled here by hand.
+# Exit 0 = every check passed and TSan reported nothing (TSan itself exits 66 on a race). `swift test --sanitize=thread` DOES instrument C targets too
+# (symbol check of 2026-11-08, docs/STATUS.md "Step 6b-2 real runs", Open items; this comment used to say it did not, which misread the 2026-11-04 finding). The C file
+# is compiled here by hand because this script is the one shown to FAIL on broken variants, with plain samples where a missing release/acquire on `w` becomes a race (below).
 #
 #   scripts/tsan-systemaudioring.sh [plain|atomic|all]      default all
 #     plain   CSystemAudioRing.c compiled with -DSA_RING_PLAIN_SAMPLES (plain float samples) and the PACED stress. THIS is the run that can see a
