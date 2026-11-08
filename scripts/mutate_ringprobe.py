@@ -90,7 +90,7 @@ MUTANTS = {
             [(RUNNER, "if samples.last!.elapsedSeconds >= environment.requestedSeconds { break sampling }", "if samples.count > Int(environment.requestedSeconds) { break sampling }")]),
     "R23": ("the gain read-back AFTER the engine started is not checked",
             [(RUNNER, "guard gain.readBackAfterStart == 0 else {", "guard true || gain.readBackAfterStart == 0 else {")]),
-    "R26a": ("ticker wake priority: an interrupt is returned BEFORE a stop request (written 2026-11-08 20:02, after the R24 question; run after the final 25-mutant run)",
+    "R26a": ("ticker wake priority: an interrupt is returned BEFORE a stop request (written 2026-11-08 20:20, after the R24 question; run after the final 25-mutant run)",
              [(TICKER, "        if signalPending { return .signal }                  // sticky: a stop request stays pending\n        if interruptPending { return .interrupt }            // sticky: the runner reads the backend's counter and stops\n",
                "        if interruptPending { return .interrupt }\n        if signalPending { return .signal }\n")]),
     "R26b": ("ticker wake priority: a tick is returned BEFORE a stop request or an interrupt",
