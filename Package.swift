@@ -24,7 +24,7 @@ let package = Package(
 
         // Step 6b-1: system-audio ring (producer IOProc, two per-channel readers; C11 atomics, no calls) plus the Objective-C factory of
         // the AVAudioSourceNode whose block makes one call into it. Same flags as CTapProbe; -fobjc-arc is explicit so the block's code does not
-        // depend on a default. Not yet used by SpatialAudioEngine (wiring is Step 6b-2); only the engine tests link it.
+        // depend on a default. Used by SpatialAudioEngine since Step 6b-2 (the ring probe) and by the engine tests.
         .target(
             name: "CSystemAudioRing",
             cSettings: [.unsafeFlags(["-Werror=function-effects", "-fobjc-arc"])],
@@ -37,8 +37,9 @@ let package = Package(
         // AVFoundation + Vision behind the HeadPoseProvider protocol.
         .target(name: "SpatialAudioTracking", dependencies: ["SpatialAudioCore"]),
 
-        // Spatial renderer (AVAudioEnvironmentNode + HRTF), test tone, pose pump, scripted listening tests.
-        .target(name: "SpatialAudioEngine", dependencies: ["SpatialAudioCore", "CTapProbe"]),
+        // Spatial renderer (AVAudioEnvironmentNode + HRTF), test tone, pose pump, scripted listening tests. Step 6b-2: also the ring probe
+        // (`--ring-probe`), which links CSystemAudioRing (the ring, the producer IOProc and the source-node factory).
+        .target(name: "SpatialAudioEngine", dependencies: ["SpatialAudioCore", "CTapProbe", "CSystemAudioRing"]),
 
         // SwiftUI shell + debug HUD. No DSP or CV logic here.
         .executableTarget(

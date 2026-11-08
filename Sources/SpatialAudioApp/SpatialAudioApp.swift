@@ -8,6 +8,8 @@ struct SpatialAudioApp: App {
     init() {
         // Command-line probes (Step 6a: --tap-probe, --list-audio-devices) run here and exit before any window exists.
         if let status = TapProbeLaunch.runIfRequested(LaunchOptions.current) { exit(status) }
+        // Step 6b-2: --ring-probe / --ring-probe-simulate (the real tap into the ring and a real-time engine at output gain 0, measurement only).
+        if let status = RingProbeLaunch.runIfRequested(arguments: CommandLine.arguments, resultsDirectory: LaunchOptions.current.resultsDirectory) { exit(status) }
     }
 
     var body: some Scene {
