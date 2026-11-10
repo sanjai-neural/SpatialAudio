@@ -42,6 +42,19 @@ extension ReportStore {
     }
 }
 
+extension ReportStore {
+    /// Writes `<stem>.json` and `<stem>.md` for a blind listening test (Step 3a-2). Numbers only: the report type holds no names, UIDs or paths.
+    @discardableResult
+    static func writeListening(_ report: BlindListeningReport, stem: String, to directory: URL) throws -> [URL] {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let json = directory.appendingPathComponent(stem + ".json")
+        let markdown = directory.appendingPathComponent(stem + ".md")
+        try report.jsonData().write(to: json, options: .atomic)
+        try Data(report.markdown().utf8).write(to: markdown, options: .atomic)
+        return [json, markdown]
+    }
+}
+
 /// Sign mapping the user confirmed after a self-test. Just three booleans and a label; no camera data.
 struct SavedMapping: Codable, Equatable {
     var mapping: HeadAngleMapping

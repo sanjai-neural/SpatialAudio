@@ -43,6 +43,7 @@ final class AudioTestModel {
 
     func start() {
         guard !isRunning else { return }
+        guard !BlindListeningModel.shared.isRunning else { state = .failed("The blind listening test is running. Stop it first: two engines at once would confuse the test."); return }
         do {
             let renderer = try EnvironmentRenderer(mode: .live)
             renderer.outputVolume = Float(volume)                  // the slider level is in place before any sound exists

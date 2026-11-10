@@ -22,6 +22,8 @@ import SpatialAudioCore
 ///   --tap-probe-with-output-device   (with --tap-probe) also put the default output device in the aggregate device
 ///   --allow-device-inputs            (with the above) allow it even if that device has input channels
 ///   --list-audio-devices    print counts of the audio devices and taps this process can see, then exit
+///   --blind-listening-simulate[=perfect|swapped|reversed|guess|abstain|silent]   Step 3a-2: rehearse the blind listening test's report path with a
+///                           SIMULATED listener (no audio, no camera, fabricated answers), write a -SIMULATED report, print where, quit
 struct LaunchOptions: Sendable {
     var simulate = false
     var conventions = SimulatedUser.Conventions()
@@ -38,6 +40,8 @@ struct LaunchOptions: Sendable {
     var tapProbeWithOutputDevice = false
     var allowDeviceInputs = false
     var listAudioDevices = false
+    /// `--blind-listening-simulate[=behavior]`: the behavior name ("perfect" if none was given).
+    var blindListeningSimulate: String?
     /// A `--tap-probe` value that is not a number (reported by the launcher, which exits with status 2).
     var tapProbeBadValue: String?
 
@@ -78,6 +82,10 @@ struct LaunchOptions: Sendable {
                     if a.hasPrefix("--tap-probe-simulate=") { tapProbeSimulate = true }
                     let value = String(a.drop { $0 != "=" }.dropFirst())
                     if let seconds = Double(value) { tapProbeSeconds = seconds } else { tapProbeBadValue = value }
+                } else if a == "--blind-listening-simulate" {
+                    blindListeningSimulate = "perfect"
+                } else if a.hasPrefix("--blind-listening-simulate=") {
+                    blindListeningSimulate = String(a.dropFirst("--blind-listening-simulate=".count))
                 } else if a.hasPrefix("--results-dir=") {
                     resultsDirectory = URL(fileURLWithPath: String(a.dropFirst("--results-dir=".count)))
                 }
