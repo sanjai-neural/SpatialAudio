@@ -888,6 +888,19 @@ Release check in all four: running before stop, `isRunning` false after stop, 0 
 
 **What these four do not show.** A clean run (the Step 2d / 2e criteria): all three axes DETERMINED, a loss test that passes with a meaningful jump check, and an answered green light. Any sign for roll. Why the jump happened at 153425 and why 100655 ran at 26 fps. Anything about dim light (all four normal light). Still missing: the items in "Manual results still missing". Procedure: docs/MANUAL_TEST_STEP2.md.
 
+## PENDING (not done): two 1-minute left/right checks before the first head-tracked listening (recorded 2026-11-10)
+**Status: PENDING. Neither check has been done. Nothing below is a result.** Set by Sanjai.
+
+**Why.** Sanjai's earlier answer to the Step 3a Test A question was "left, middle, right" **[stated by Sanjai; the answer itself is not recorded anywhere else in this file]**. Test A's loop order is **LEFT, RIGHT, AHEAD** (3 s each; `ListeningTest.sourceSides`, docs/MANUAL_TEST_STEP3A.md), so that answer does **not** match the loop order. **A left/right swap (the left channel reaching the right ear, or headphones worn the wrong way round) is therefore neither confirmed nor excluded.** The offline measurements (Step 3a findings) describe the engine's output channels only, not which ear a channel reaches.
+
+**Before the first head-tracked listening, Sanjai does:**
+1. **A stereo left/right voice test outside our app** (any source he trusts that says "left" / "right" in the matching channel): which ear hears the word "left"? About 1 minute.
+2. **Test A in the scripted card** (docs/MANUAL_TEST_STEP3A.md, Part 2; start it and listen to the first sound after the start of a loop): which ear gets the first sound? It should be hard **LEFT**, i.e. the left ear. About 1 minute.
+
+**Reading the two together (derived, nothing measured).** If (1) puts "left" in the left ear and (2) puts the first sound in the left ear, a swap is excluded for those headphones and that output route. If (1) is swapped and (2) is swapped, the headphones or the output route are swapped, not the app. If (1) is right and (2) is swapped, the app's left/right is suspect. Which of these holds is **UNKNOWN until he reports**. The flip switches are not to be used for a swap (see the manual). The blind listening test (Step 3a-2, also UNVERIFIED, never run) has a channel-swap flag from its static LEFT / RIGHT trials, but it does not replace these two checks, which are the gate Sanjai set.
+
+**Nothing changes meanwhile.** The tracker is still not connected to the renderer; no sign default was changed.
+
 ## Pre-release checklist (PLANNED; before the repository is made public or a release is built, Step 9)
 - [ ] **Scrub the account path.** `docs/MANUAL_TEST_STEP2.md`, `MANUAL_TEST_STEP3A.md`, `MANUAL_TEST_STEP6A.md` and `MANUAL_TEST_STEP6B2.md` contain `/Users/sanjais/ClaudeHome/SpatialAudio/...` (`git grep -l '/Users/sanjais'` lists exactly these four tracked files on 2026-11-08). Replace with a relative path or `<repo>`. **They are already on `origin/main`, so editing the working tree does not remove them from the history**; if the repository goes public, decide then whether the history needs rewriting. The dev bundle also embeds the repo path in its Info.plist (`SADevRepoRoot`, debug builds only; `build/` is not tracked; release builds do not embed it).
 - [ ] Before committing any real report: the privacy grep (file array, with positive controls) for account, host and device names and for `/Users` paths, as done for the five ring-probe reports.
