@@ -32,6 +32,7 @@ struct HUDContent: View {
                 Divider()
                 controls
                 SelfTestLauncher(controller: model.selfTest, model: model)
+                TrackedListeningCard(model: TrackedListeningModel.shared, head: model)
                 BlindListeningCard(model: BlindListeningModel.shared)
                 AudioTestCard(model: AudioTestModel.shared)
                 if model.selfTest.stage == .finished {

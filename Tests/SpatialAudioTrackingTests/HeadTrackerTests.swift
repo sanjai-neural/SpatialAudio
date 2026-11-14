@@ -401,3 +401,50 @@ final class Box: @unchecked Sendable {
     var all: [TrackingSnapshot] { lock.lock(); defer { lock.unlock() }; return items }
     var last: TrackingSnapshot? { all.last }
 }
+
+// Step 3b: the opt-in roll switch (head-tracked listening forces roll to 0 before the filter).
+@Suite struct TrackedRollSwitchTests {
+    let dt = 1.0 / 30
+
+    private func run(_ tracker: HeadTracker, seconds: Double, from t0: Double = 0, _ make: (Double) -> HeadPoseDetection) -> TrackingSnapshot {
+        var t = t0; var last: TrackingSnapshot!
+        while t <= t0 + seconds + 1e-9 { last = tracker.ingest(make(t)); t += dt }
+        return last
+    }
+
+    @Test func rollIsZeroInThePoseButRawAnglesStayForDisplay() {
+        let t = HeadTracker(provider: FakeProvider())
+        t.setRollForcedToZero(true)
+        let s = run(t, seconds: 2) { detection(at: $0, yaw: 30, pitch: 10, roll: 40) }
+        #expect(s.state == .locked)
+        #expect(abs(s.euler.rollDegrees) < 0.5)                         // what goes on to the renderer
+        #expect(abs(s.euler.yawDegrees - 30) < 0.5)
+        #expect(abs(s.euler.pitchDegrees - (-10)) < 0.5)
+        #expect(abs((s.mappedRawEuler?.rollDegrees ?? 0) - 40) < 1e-6)   // the display still shows the raw (mapped) roll
+        #expect(abs((s.visionAngles?.roll ?? 0) - 40 * deg2rad) < 1e-9)
+    }
+
+    @Test func aRollOnlyMoveLeavesThePoseAtNeutral() {
+        let t = HeadTracker(provider: FakeProvider())
+        t.setRollForcedToZero(true)
+        _ = run(t, seconds: 1) { detection(at: $0) }
+        let s = run(t, seconds: 2, from: 1.0 + dt) { detection(at: $0, roll: 50) }
+        #expect(s.pose.angle(to: .identity) * 180 / .pi < 0.5)
+    }
+
+    @Test func switchedOffRollPassesThroughAsBefore() {
+        let t = HeadTracker(provider: FakeProvider())
+        let s = run(t, seconds: 2) { detection(at: $0, yaw: 30, roll: 40) }
+        #expect(abs(s.euler.rollDegrees - 40) < 0.5)
+    }
+
+    @Test func changingTheSwitchRestartsButSettingTheSameValueDoesNot() {
+        let t = HeadTracker(provider: FakeProvider())
+        let s = run(t, seconds: 2) { detection(at: $0, yaw: 30) }
+        #expect(s.state == .locked)
+        t.setRollForcedToZero(false)                                    // same value: nothing restarts
+        #expect(t.recenter() == true)                                   // still locked
+        t.setRollForcedToZero(true)                                     // changed: filter, machine and calibration restart
+        #expect(t.recenter() == false)
+    }
+}

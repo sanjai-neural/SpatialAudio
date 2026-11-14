@@ -3,6 +3,15 @@ import Observation
 import SpatialAudioCore
 import SpatialAudioTracking
 
+/// Thread-safe slot for the head-tracked listening feed (Step 3b): the tracker's snapshot handler runs on the camera and watchdog queues and calls
+/// whatever is stored here BEFORE the hop to the main actor, so the pose reaches the audio session without waiting for the UI. nil = nobody listens.
+final class PoseFeedBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var feed: (@Sendable (TrackingSnapshot) -> Void)?
+    func set(_ f: (@Sendable (TrackingSnapshot) -> Void)?) { lock.lock(); feed = f; lock.unlock() }
+    func send(_ s: TrackingSnapshot) { lock.lock(); let f = feed; lock.unlock(); f?(s) }
+}
+
 /// View model only: owns the tracker and republishes snapshots to the UI.
 /// No CV or DSP logic lives here (that is in SpatialAudioTracking / SpatialAudioCore).
 @MainActor @Observable
@@ -26,6 +35,8 @@ final class HeadTrackingModel {
     private(set) var mappingNote = "documented defaults (UNVERIFIED on hardware)"
 
     let isSimulated: Bool
+    @ObservationIgnored let poseFeed: PoseFeedBox
+    @ObservationIgnored private var mappingBeforeListening: (mapping: HeadAngleMapping, note: String)?
     @ObservationIgnored let selfTest = SelfTestController()
     @ObservationIgnored let trackerConfig = HeadTrackerConfig()
     @ObservationIgnored private let tracker: HeadTracker
@@ -45,7 +56,10 @@ final class HeadTrackingModel {
             provider = CameraHeadPoseProvider()
         }
         tracker = HeadTracker(provider: provider, config: trackerConfig)
+        let feedBox = PoseFeedBox()
+        poseFeed = feedBox
         tracker.setSnapshotHandler { snap in
+            feedBox.send(snap)                                    // Step 3b: head-tracked listening gets the pose first, on this queue
             let arrival = HeadTracker.monotonicSeconds()         // stamp on the capture queue, before the main-actor hop
             Task { @MainActor in HeadTrackingModel.shared.receive(snap, arrival: arrival) }
         }
@@ -121,6 +135,24 @@ final class HeadTrackingModel {
 
     func recenter() {
         recenterMessage = tracker.recenter() ? "Recentered." : "Recenter only works while state is LOCKED."
+    }
+
+    // MARK: head-tracked listening (Step 3b)
+
+    /// Yaw and pitch use the DEFAULT mapping (no invert), as confirmed by Sanjai; any saved or manual mapping is set aside until `leaveHeadTrackedListeningMode`.
+    /// Roll is forced to 0 in the tracker (the tested `RollRemoval` conversion), before the filter. Call while the camera is stopped.
+    func enterHeadTrackedListeningMode() {
+        if mappingBeforeListening == nil { mappingBeforeListening = (mapping, mappingNote) }
+        changeMapping(to: HeadAngleMapping(), note: "default mapping, no invert (yaw and pitch confirmed by Sanjai); roll forced to 0")
+        tracker.setRollForcedToZero(true)
+    }
+
+    func leaveHeadTrackedListeningMode() {
+        tracker.setRollForcedToZero(false)
+        if let before = mappingBeforeListening {
+            changeMapping(to: before.mapping, note: before.note)
+            mappingBeforeListening = nil
+        }
     }
 
     // MARK: sign mapping

@@ -49,7 +49,7 @@ final class BlindListeningModel {
 
     func start() {
         guard !isRunning else { return }
-        guard !AudioTestModel.shared.isRunning else { stage = .failed("The scripted audio test is running. Stop it first: two engines at once would confuse the test."); return }
+        if let why = ListeningModes.conflict(requested: .blind) { stage = .failed(why); return }
         do {
             let renderer = try EnvironmentRenderer(mode: .live)
             renderer.outputVolume = 0                                   // silent until the session's first (silent) set-up has run

@@ -37,12 +37,15 @@ public struct ListenerMapping: Equatable, Sendable, Codable {
     public var invertYaw: Bool
     public var invertPitch: Bool
     public var invertRoll: Bool
+    /// Step 3b: the roll angle of the pose is set to 0 AFTER any inversion (yaw and pitch unchanged). Head-tracked listening uses this at the pump's output, so
+    /// the listener the renderer receives never has a roll, even when interpolating between two poses leaves a tiny one. Default off.
+    public var zeroRoll: Bool
 
-    public init(invertYaw: Bool = false, invertPitch: Bool = false, invertRoll: Bool = false) {
-        self.invertYaw = invertYaw; self.invertPitch = invertPitch; self.invertRoll = invertRoll
+    public init(invertYaw: Bool = false, invertPitch: Bool = false, invertRoll: Bool = false, zeroRoll: Bool = false) {
+        self.invertYaw = invertYaw; self.invertPitch = invertPitch; self.invertRoll = invertRoll; self.zeroRoll = zeroRoll
     }
 
-    public var isIdentity: Bool { !(invertYaw || invertPitch || invertRoll) }
+    public var isIdentity: Bool { !(invertYaw || invertPitch || invertRoll || zeroRoll) }
 
     /// The pose with the flagged axes negated. Goes through Euler angles (an API-boundary operation) only when a flag
     /// is set; the identity mapping returns the normalized input untouched.
@@ -52,6 +55,7 @@ public struct ListenerMapping: Equatable, Sendable, Codable {
         if invertYaw { e.yaw = -e.yaw }
         if invertPitch { e.pitch = -e.pitch }
         if invertRoll { e.roll = -e.roll }
+        if zeroRoll { e.roll = 0 }
         return Quaternion(euler: e)
     }
 }

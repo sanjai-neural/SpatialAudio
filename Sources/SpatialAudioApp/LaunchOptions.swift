@@ -22,6 +22,8 @@ import SpatialAudioCore
 ///   --tap-probe-with-output-device   (with --tap-probe) also put the default output device in the aggregate device
 ///   --allow-device-inputs            (with the above) allow it even if that device has input channels
 ///   --list-audio-devices    print counts of the audio devices and taps this process can see, then exit
+///   --tracked-listening-selfcheck   Step 3b: (needs --simulate) SILENT (volume 0) run of head-tracked listening's real start / feed / readout / stop path with the
+///                           SIMULATED user (never the real camera, no sound), prints what the card would show, then quits
 ///   --blind-listening-simulate[=perfect|swapped|reversed|guess|abstain|silent]   Step 3a-2: rehearse the blind listening test's report path with a
 ///                           SIMULATED listener (no audio, no camera, fabricated answers), write a -SIMULATED report, print where, quit
 struct LaunchOptions: Sendable {
@@ -35,6 +37,7 @@ struct LaunchOptions: Sendable {
     var resultsDirectory: URL?
     var renderDirectory: URL?
     var audioTestSelfCheck = false
+    var trackedListeningSelfCheck = false
     var tapProbeSeconds: Double?
     var tapProbeSimulate = false
     var tapProbeWithOutputDevice = false
@@ -57,6 +60,7 @@ struct LaunchOptions: Sendable {
             case "--exit-after-selftest": exitAfterSelfTest = true
             case "--mute": muteCues = true
             case "--audio-test-selfcheck": audioTestSelfCheck = true
+            case "--tracked-listening-selfcheck": trackedListeningSelfCheck = true
             case "--tap-probe-with-output-device": tapProbeWithOutputDevice = true
             case "--allow-device-inputs": allowDeviceInputs = true
             case "--list-audio-devices": listAudioDevices = true

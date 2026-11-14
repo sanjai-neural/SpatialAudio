@@ -70,6 +70,7 @@ public final class HeadTracker: @unchecked Sendable {
     private var pipeline: HeadPosePipeline
     private var estimator: TrackingQualityEstimator
     private var mapping: HeadAngleMapping
+    private var rollForcedToZero = false
     private var snapshotHandler: (@Sendable (TrackingSnapshot) -> Void)?
     private var lastFrameMono: Double?       // monotonic time when the last real frame arrived
     private var lastCaptureTime: Double?     // that frame's capture timestamp (pipeline timeline)
@@ -107,6 +108,16 @@ public final class HeadTracker: @unchecked Sendable {
         pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine, gate: config.gate)
     }
 
+    /// Step 3b: with this on, the roll of every sample is set to 0 BEFORE the filter and the calibration (the tested `RollRemoval` conversion), so the
+    /// pose this tracker outputs has no roll of its own and the One-Euro filter does not react to roll jitter. The raw Vision angles and
+    /// `mappedRawEuler` (display only) stay untouched. Changing it restarts the filter, state machine and calibration (like a mapping change): Recenter afterwards.
+    public func setRollForcedToZero(_ on: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        guard on != rollForcedToZero else { return }
+        rollForcedToZero = on
+        pipeline = HeadPosePipeline(filter: config.filter, machine: config.machine, gate: config.gate)
+    }
+
     /// Make the current head orientation neutral. False if not currently locked.
     @discardableResult
     public func recenter() -> Bool {
@@ -132,6 +143,7 @@ public final class HeadTracker: @unchecked Sendable {
     func ingest(_ d: HeadPoseDetection) -> TrackingSnapshot {
         lock.lock()
         let map = mapping
+        let rollZero = rollForcedToZero
         var mappedEuler: EulerAngles?
         var sample: HeadPoseSample?
 
@@ -141,7 +153,7 @@ public final class HeadTracker: @unchecked Sendable {
             mappedEuler = e
             // Our quality (not Vision's confidence) is what the state machine gates on. Samples
             // below its threshold count as lost and never reach the filter.
-            sample = HeadPoseSample(orientation: Quaternion(euler: e), confidence: quality.overall,
+            sample = HeadPoseSample(orientation: Quaternion(euler: rollZero ? RollRemoval.removingRoll(from: e) : e), confidence: quality.overall,
                                     timestamp: d.captureTime)
         }
         let out = pipeline.process(sample, now: d.captureTime)

@@ -20,6 +20,8 @@ struct SpatialAudioApp: App {
                     // Developer switch (see LaunchOptions): start the self-test without clicking.
                     if LaunchOptions.current.audioTestSelfCheck {
                         await AudioTestModel.shared.runSilentSelfCheck()
+                    } else if LaunchOptions.current.trackedListeningSelfCheck {
+                        await TrackedListeningModel.shared.runSilentSelfCheck()
                     } else if let behavior = LaunchOptions.current.blindListeningSimulate {
                         BlindListeningModel.shared.runSimulatedRehearsal(behavior: behavior, resultsDirectory: LaunchOptions.current.resultsDirectory)
                     } else if let dir = LaunchOptions.current.renderDirectory {
@@ -43,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             HeadTrackingModel.shared.stop()
             AudioTestModel.shared.stop()
             BlindListeningModel.shared.stop()
+            TrackedListeningModel.shared.stop()
         }
     }
 }

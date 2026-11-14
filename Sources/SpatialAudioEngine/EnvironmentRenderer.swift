@@ -110,7 +110,8 @@ public final class EnvironmentRenderer: SpatialSceneSink, @unchecked Sendable {
     /// - Parameters:
     ///   - sampleRate: used for `.offline`; `.live` uses the output device's rate.
     ///   - initialSource: where the tone sits before anything moves it (default 2 m straight ahead).
-    public init(mode: Mode, sampleRate requested: Double = 48_000, initialSource: Vector3? = nil) throws {
+    ///   - loop: the mono samples the player loops at the (live or requested) sample rate; nil = the `TestTone` burst loop of the Step 3a tests. Step 3b passes a `SteadyNoise` loop.
+    public init(mode: Mode, sampleRate requested: Double = 48_000, initialSource: Vector3? = nil, loop customLoop: ((Double) -> [Float])? = nil) throws {
         let engine = AVAudioEngine()
         var rate = requested
 
@@ -135,7 +136,7 @@ public final class EnvironmentRenderer: SpatialSceneSink, @unchecked Sendable {
         }
 
         let tone = TestTone(sampleRate: rate)
-        let samples = tone.makeLoop()
+        let samples = customLoop?(rate) ?? tone.makeLoop()
         guard let buffer = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: AVAudioFrameCount(samples.count)),
               let channel = buffer.floatChannelData?[0] else {
             throw EnvironmentRendererError.badFormat("could not allocate the tone buffer")
