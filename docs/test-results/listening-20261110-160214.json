@@ -1,0 +1,268 @@
+{
+  "completed" : true,
+  "device" : {
+    "bufferFrameSize" : 320,
+    "nominalSampleRate" : 44100,
+    "outputChannels" : 2,
+    "transportName" : "kAudioDeviceTransportTypeBluetooth",
+    "transportType" : "blue"
+  },
+  "endAnswers" : {
+    "airPodsSpatialAudio" : "on",
+    "clicksOrCrackling" : "yes",
+    "soundLocation" : "inside"
+  },
+  "endedAt" : "2026-11-10T16:05:34+05:30",
+  "kind" : "blind-listening-test",
+  "parameters" : {
+    "flagMinimumDefinite" : 6,
+    "flagMinimumOppositeFraction" : 0.75,
+    "headTurnDegrees" : 45,
+    "middleThresholdDegrees" : 15,
+    "outputVolume" : 0.2,
+    "repetitionsPerCondition" : 4,
+    "runner" : {
+      "answerEnableSeconds" : 1.2,
+      "fadeSeconds" : 0.08,
+      "firstGapSeconds" : 2,
+      "gapSeconds" : 1.5,
+      "headEaseSeconds" : 1,
+      "sceneSwitchSeconds" : 0.4,
+      "timeoutSeconds" : 12
+    },
+    "sourceDistanceMeters" : 2,
+    "staticMostlyRightFraction" : 0.75,
+    "staticSideAzimuthDegrees" : 90
+  },
+  "plannedTrials" : 20,
+  "run" : {
+    "durationSeconds" : 200.172831459,
+    "lowPowerModeEnd" : false,
+    "lowPowerModeStart" : false,
+    "pumpMaxPeriodMilliseconds" : 14.131750000160537,
+    "pumpMeanPeriodMilliseconds" : 11.609958669257548,
+    "pumpTicks" : 17240,
+    "thermalStateEnd" : "nominal",
+    "thermalStateStart" : "nominal"
+  },
+  "schemaVersion" : 1,
+  "score" : {
+    "accuracyOfDefinite" : 0.42857142857142855,
+    "answeredDefinite" : 7,
+    "chanceUpperTail" : 0.42935528120713257,
+    "channelSwap" : {
+      "definiteAnswers" : 3,
+      "oppositeEarAnswers" : 0,
+      "status" : "notAssessable"
+    },
+    "confusion" : [
+      [
+        0,
+        0,
+        1,
+        0,
+        3
+      ],
+      [
+        0,
+        2,
+        0,
+        1,
+        1
+      ],
+      [
+        0,
+        0,
+        1,
+        0,
+        3
+      ],
+      [
+        1,
+        0,
+        1,
+        0,
+        2
+      ],
+      [
+        0,
+        0,
+        1,
+        0,
+        3
+      ]
+    ],
+    "correct" : 3,
+    "headTurnReversed" : {
+      "definiteAnswers" : 3,
+      "oppositeEarAnswers" : 1,
+      "status" : "notAssessable"
+    },
+    "perCondition" : [
+      {
+        "condition" : "staticLeft",
+        "correct" : 0,
+        "definite" : 1,
+        "trials" : 4
+      },
+      {
+        "condition" : "staticRight",
+        "correct" : 2,
+        "definite" : 2,
+        "trials" : 4
+      },
+      {
+        "condition" : "staticAhead",
+        "correct" : 1,
+        "definite" : 1,
+        "trials" : 4
+      },
+      {
+        "condition" : "headLeft45",
+        "correct" : 0,
+        "definite" : 2,
+        "trials" : 4
+      },
+      {
+        "condition" : "headRight45",
+        "correct" : 0,
+        "definite" : 1,
+        "trials" : 4
+      }
+    ],
+    "trials" : 20
+  },
+  "seed" : 3344368679,
+  "simulated" : false,
+  "startedAt" : "2026-11-10T16:02:14+05:30",
+  "trials" : [
+    {
+      "answer" : "notAnswered",
+      "condition" : "headLeft45",
+      "number" : 1,
+      "truth" : "rightEar"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "staticRight",
+      "number" : 2,
+      "truth" : "rightEar"
+    },
+    {
+      "answer" : "leftEar",
+      "condition" : "headLeft45",
+      "number" : 3,
+      "reactionSeconds" : 3.0383342090008227,
+      "truth" : "rightEar"
+    },
+    {
+      "answer" : "rightEar",
+      "condition" : "staticRight",
+      "number" : 4,
+      "reactionSeconds" : 2.1665657499997906,
+      "truth" : "rightEar"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "staticLeft",
+      "number" : 5,
+      "truth" : "leftEar"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "staticLeft",
+      "number" : 6,
+      "truth" : "leftEar"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "staticAhead",
+      "number" : 7,
+      "truth" : "middle"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "headRight45",
+      "number" : 8,
+      "truth" : "leftEar"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "staticAhead",
+      "number" : 9,
+      "truth" : "middle"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "headLeft45",
+      "number" : 10,
+      "truth" : "rightEar"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "headRight45",
+      "number" : 11,
+      "truth" : "leftEar"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "staticAhead",
+      "number" : 12,
+      "truth" : "middle"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "headRight45",
+      "number" : 13,
+      "truth" : "leftEar"
+    },
+    {
+      "answer" : "cantTell",
+      "condition" : "staticRight",
+      "number" : 14,
+      "reactionSeconds" : 4.731932624999899,
+      "truth" : "rightEar"
+    },
+    {
+      "answer" : "middle",
+      "condition" : "staticLeft",
+      "number" : 15,
+      "reactionSeconds" : 2.450003915999332,
+      "truth" : "leftEar"
+    },
+    {
+      "answer" : "middle",
+      "condition" : "headLeft45",
+      "number" : 16,
+      "reactionSeconds" : 3.3165457920003973,
+      "truth" : "rightEar"
+    },
+    {
+      "answer" : "middle",
+      "condition" : "headRight45",
+      "number" : 17,
+      "reactionSeconds" : 2.3498807920004765,
+      "truth" : "leftEar"
+    },
+    {
+      "answer" : "rightEar",
+      "condition" : "staticRight",
+      "number" : 18,
+      "reactionSeconds" : 2.8998065830000996,
+      "truth" : "rightEar"
+    },
+    {
+      "answer" : "middle",
+      "condition" : "staticAhead",
+      "number" : 19,
+      "reactionSeconds" : 4.7168578330001765,
+      "truth" : "middle"
+    },
+    {
+      "answer" : "notAnswered",
+      "condition" : "staticLeft",
+      "number" : 20,
+      "truth" : "leftEar"
+    }
+  ]
+}
