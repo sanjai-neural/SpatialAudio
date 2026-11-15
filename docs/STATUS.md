@@ -921,13 +921,15 @@ Release check in all four: running before stop, `isRunning` false after stop, 0 
 
 **Pending (not done), unchanged:** the two 1-minute left/right checks before the first head-tracked listening (section above), and Sanjai's account of the unanswered trials.
 
-## Decision by Sanjai (recorded 2026-11-15, stated in his message; the date he decided is not recorded)
+## Decision by Sanjai (stated 2026-11-10, afternoon IST; recorded in this file on 2026-11-15)
+**Date, per Sanjai:** he stated this decision on **2026-11-10, in the afternoon (IST)**. His attempt that day to send it to me was **not recorded**, so it entered this file only on 2026-11-15.
+
 **Roll stays at 0 in the first tracked build; roll stays PLANNED until a pure tilt is measured. Yaw and pitch are confirmed (no invert).** The evidence for why roll is not used is in "Four more real camera self-test reports (2026-11-10)" (roll never determined in 11 real runs; raw roll leaks into turns with a sign that changes between runs; the tilt move was read mainly as yaw). This is a decision, not a measurement; no code was changed to implement it in this commit, and the tracker is still not connected to the renderer.
 
 ## Step 3b findings and verification record (2026-11-15): the camera tracker is connected to the renderer (head-tracked listening)
 **Goal and exit.** The first head-tracked sound: camera → Vision → One-Euro → calibration → state machine → `PoseMailbox` → `ListenerPosePump` → `AVAudioEnvironmentNode`, behind its own HUD card with one Start and one Stop, roll forced to 0, no jump on face loss, live readouts, a low capped volume, and a manual test. **Status: IMPLEMENTED-UNVERIFIED. It has never run on the real camera through this card, and nobody has heard it.** Procedure: docs/MANUAL_TEST_STEP3B.md. No CLAUDE.md edit (Sanjai decides the gate wording).
 
-**Decisions by Sanjai (recorded 2026-11-15, as stated in his message; when he decided is not recorded)**
+**Decisions by Sanjai (stated in his message of 2026-11-15; the roll decision itself was stated on 2026-11-10, afternoon IST, see "Decision by Sanjai" above; the dates of the others are not recorded)**
 - **The gate is open for yaw and pitch.** Their signs are confirmed (default mapping, no invert; run 215400). Roll stays forced to 0 and stays PLANNED until a pure tilt is measured (see "Decision by Sanjai" above).
 - The two blind listening runs (160214, 161833) were inconclusive (most trials not answered, no conclusion about a left/right swap); **a further blind run is parked.**
 - **The two 1-minute left/right checks stay PENDING and are done before the first head-tracked listening** (stereo voice test outside our app; Test A's first sound). The manual puts them first. This build has not been listened to.
