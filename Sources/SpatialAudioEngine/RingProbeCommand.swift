@@ -13,9 +13,11 @@ public enum RingProbeCommand {
         public var simulate: Bool
         /// Simulated runs only.
         public var simulatedFaults: SimulatedRingBackend.Faults
+        /// Step 6b-3a-2: non-nil = the recovery mode (the control-thread re-prime with these UNTUNED thresholds). nil = the plain probe, unchanged.
+        public var recovery: RePrimeConfig?
 
-        public init(seconds: Double, simulate: Bool = false, simulatedFaults: SimulatedRingBackend.Faults = .init()) {
-            self.seconds = seconds; self.simulate = simulate; self.simulatedFaults = simulatedFaults
+        public init(seconds: Double, simulate: Bool = false, simulatedFaults: SimulatedRingBackend.Faults = .init(), recovery: RePrimeConfig? = nil) {
+            self.seconds = seconds; self.simulate = simulate; self.simulatedFaults = simulatedFaults; self.recovery = recovery
         }
     }
 
@@ -62,6 +64,7 @@ public enum RingProbeCommand {
         }
         defer { sources.forEach { $0.cancel() }; signal(SIGINT, SIG_DFL); signal(SIGTERM, SIG_DFL) }
 
-        return RingProbeRunner.run(backend: backend, ticker: ticker, environment: environment, clock: clock)
+        let orchestrator = options.recovery.map { RingRecoveryOrchestrator(backend: backend, config: $0) }
+        return RingProbeRunner.run(backend: backend, ticker: ticker, environment: environment, clock: clock, recovery: orchestrator)
     }
 }

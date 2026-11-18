@@ -56,11 +56,13 @@ public struct RingProbeRawSample: Equatable, Sendable {
     public var outputActualRate: Double?
     /// The default output device is not the one the run started with (a device change, not a rate change).
     public var defaultOutputChanged: Bool
+    /// Step 6b-3a-2: the recovery side of the ring's snapshot (frame-count table, jumps, flags, T). nil when the backend does not provide it. NOT part of the series rows.
+    public var recovery: RingRecoverySnapshot?
 
     public init(hostTicks: UInt64, continuousSeconds: Double? = nil, producer: RingProducerCounters, readers: [RingReaderCounters],
-                outputNominalRate: Double? = nil, outputActualRate: Double? = nil, defaultOutputChanged: Bool = false) {
+                outputNominalRate: Double? = nil, outputActualRate: Double? = nil, defaultOutputChanged: Bool = false, recovery: RingRecoverySnapshot? = nil) {
         self.hostTicks = hostTicks; self.continuousSeconds = continuousSeconds; self.producer = producer; self.readers = readers
-        self.outputNominalRate = outputNominalRate; self.outputActualRate = outputActualRate; self.defaultOutputChanged = defaultOutputChanged
+        self.outputNominalRate = outputNominalRate; self.outputActualRate = outputActualRate; self.defaultOutputChanged = defaultOutputChanged; self.recovery = recovery
     }
 }
 

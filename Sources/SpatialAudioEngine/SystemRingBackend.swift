@@ -148,7 +148,9 @@ public final class SystemRingBackend: RingProbeBackend {
 
     public func engineFacts() -> RingEngineFacts? { engine?.facts() }
     public func engineOutputGain() -> Double? { engine.map { Double($0.outputGain) } }
-    public func prime() -> Bool { ring.map { SARingPrime($0, SA_RING_DEFAULT_PRIME_CALLBACKS) } ?? false }
+    public func prime(callbacks: UInt32) -> Bool { ring.map { SARingPrime($0, callbacks) } ?? false }
+    public var isEngineRunning: Bool { engine?.isRunning ?? false }
+    public func pauseEngine() { engine?.pause() }
 
     public func startEngine() -> (ok: Bool, detail: String?) {
         guard let engine else { return (false, "no engine") }

@@ -22,10 +22,11 @@ enum RingProbeLaunch {
 
         let faults = SimulatedRingBackend.Faults(producerPPM: request.simulatedProducerPPM, underrunAtSeconds: request.simulatedUnderrunAtSeconds,
                                                  underrunStallSeconds: request.simulatedUnderrunStallSeconds)
-        let report = RingProbeCommand.run(.init(seconds: request.seconds, simulate: request.simulate, simulatedFaults: faults))
+        let report = RingProbeCommand.run(.init(seconds: request.seconds, simulate: request.simulate, simulatedFaults: faults,
+                                                recovery: request.recovery ? RePrimeConfig() : nil))
         print(report.markdown())
 
-        let stem = RingProbeReport.fileStem(date: Date(), simulated: report.isSimulated)
+        let stem = RingProbeReport.fileStem(date: Date(), simulated: report.isSimulated, recovery: request.recovery)
         do {
             let dir = ReportStore.resultsDirectory(override: resultsDirectory)
             let files = try ReportStore.writeRingProbe(report, stem: stem, to: dir)

@@ -174,7 +174,16 @@ public final class SimulatedRingBackend: RingProbeBackend, @unchecked Sendable {
 
     public func engineFacts() -> RingEngineFacts? { engine?.facts() }
     public func engineOutputGain() -> Double? { engine.map { Double($0.outputGain) } }
-    public func prime() -> Bool { ring.map { SARingPrime($0, SA_RING_DEFAULT_PRIME_CALLBACKS) } ?? false }
+    public func prime(callbacks: UInt32) -> Bool { ring.map { SARingPrime($0, callbacks) } ?? false }
+    public var isEngineRunning: Bool { engine?.isRunning ?? false }
+
+    /// Step 6b-3a-2: the render pump is joined BEFORE the engine is stopped (so no render of ours is in flight), the nodes stay attached; `startEngine` makes a new pump.
+    public func pauseEngine() {
+        renderThread?.requestStopAndJoin(); renderThread = nil
+        record("render pump joined (pause)")
+        engine?.pause()
+        record("engine paused")
+    }
 
     public func startEngine() -> (ok: Bool, detail: String?) {
         guard let engine else { return (false, "no engine") }

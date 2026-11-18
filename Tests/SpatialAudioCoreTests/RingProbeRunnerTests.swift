@@ -85,10 +85,29 @@ final class FakeRingBackend: RingProbeBackend {
     func prepareEngine(tapFormat: TapFormat) -> (ok: Bool, detail: String?) { log.add("engine.prepare"); return failPrepare ? (false, "no") : (true, nil) }
     func engineFacts() -> RingEngineFacts? { RingEngineFacts(realTime: true, sourceSampleRate: 48_000, sourceChannels: 1) }
     func engineOutputGain() -> Double? { engineStarted ? gainAfterStart : gainBeforeStart }
-    func prime() -> Bool { attempts += 1; log.add("prime"); return primeSucceedsOnAttempt.map { attempts >= $0 } ?? false }
-    func startEngine() -> (ok: Bool, detail: String?) { log.add("engine.start"); if failStartEngine { return (false, "no") }; engineStarted = true; return (true, nil) }
+    func prime(callbacks: UInt32) -> Bool {
+        attempts += 1; log.add("prime")
+        if let primeProvider { return primeProvider(callbacks) }
+        return primeSucceedsOnAttempt.map { attempts >= $0 } ?? false
+    }
+    func startEngine() -> (ok: Bool, detail: String?) {
+        log.add("engine.start"); startEngineCalls += 1
+        if failStartEngine { return (false, "no") }
+        engineStarted = true; engineRunning = true; onStartEngine?(); return (true, nil)
+    }
+
+    // Step 6b-3a-2 (recovery mode): a model of the ring can be plugged in through these hooks; without them the fake behaves as before.
+    var engineRunning = false
+    var startEngineCalls = 0
+    var onPause: (() -> Void)?
+    var onStartEngine: (() -> Void)?
+    var snapshotProvider: (() -> RingProbeRawSample?)?
+    var primeProvider: ((UInt32) -> Bool)?
+    var isEngineRunning: Bool { engineRunning }
+    func pauseEngine() { log.add("engine.pause"); engineRunning = false; onPause?() }
 
     func snapshot() -> RingProbeRawSample? {
+        if let snapshotProvider { snapshots += 1; return snapshotProvider() }
         let n = snapshots
         snapshots += 1
         let pulling = pullsStartAtSnapshot.map { n >= $0 } ?? false
@@ -105,7 +124,7 @@ final class FakeRingBackend: RingProbeBackend {
     }
 
     func configurationChangeCount() -> Int { configChangeAtSnapshot.map { snapshots >= $0 ? 1 : 0 } ?? 0 }
-    func stopEngine() { log.add("engine.stop") }
+    func stopEngine() { log.add("engine.stop"); engineRunning = false }
     func detachSourceNodes() { log.add("detach") }
     func stop(_ device: UInt32) -> Int32 { log.add("io.stop"); return destroyStatus }
     func destroyIOProc(on device: UInt32) -> Int32 { log.add("ioproc.destroy"); return destroyStatus }
@@ -298,7 +317,8 @@ private let teardownTail = ["ticker.stop", "engine.stop", "detach", "io.stop", "
         let all = Set(keys(try JSONSerialization.jsonObject(with: data)))
         #expect(all.isDisjoint(with: ["uid", "UID", "deviceName", "deviceUID", "productName", "path", "directory", "manufacturer"]))
         #expect(try RingProbeReport.decode(data) == r, "the JSON round-trips losslessly")
-        #expect(r.markdown().contains("Starvation after an underrun is EXPECTED"))
+        #expect(r.markdown().contains("In this plain mode NOTHING ends a starvation"), "the plain mode still says that nothing re-primes")
+        #expect(!r.markdown().contains("## 8. Recovery"), "no recovery section in a plain report")
     }
 
     @Test func underrunsAreExplainedAsExpectedAndALateEngineStartIsCalledOut() {

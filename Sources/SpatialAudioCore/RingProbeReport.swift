@@ -73,6 +73,8 @@ public struct RingProbeReport: Codable, Equatable, Sendable {
     public var injectedFaults: String?
     public var notes: [String]
     public var assumptions: [String]
+    /// Step 6b-3a-2: present only in the recovery mode (`--ring-probe-recovery`); nil for the plain modes (and in every report written before it existed).
+    public var recovery: RingRecoveryReport?
 
     public var isSimulated: Bool { source == "simulated" }
 
@@ -96,7 +98,7 @@ public struct RingProbeReport: Codable, Equatable, Sendable {
     /// Printed in every report. What this run is, and what it is not.
     public static let standardAssumptions = [
         "Measurement only: the engine's main mixer output volume is 0 (set in code, read back before the engine starts; the run is refused otherwise, and the mode has no option that changes it). Nothing is audible from this probe, nothing is stored, and the tap is unmuted: the original audio plays as usual.",
-        "COUNT-ONLY ring (Step 6b-1): a reader advances its cursor by exactly the frameCount it was asked for on EVERY call, served or not. After an underrun a reader is therefore AHEAD of the producer (negative fill) and, at equal producer and reader rate, STAYS starved. Starvation after an underrun is EXPECTED in this spike: no re-prime and no cursor jump exist yet.",
+        "A reader advances its cursor by exactly the frameCount it was asked for on EVERY call, served or not (plus, since Step 6b-3a-1, a counted forward jump after an overrun or by the phase rule). After an underrun a reader is therefore AHEAD of the producer (negative fill) and, at equal producer and reader rate, STAYS starved. In this plain mode NOTHING ends a starvation (no re-prime): it is EXPECTED. `--ring-probe-recovery` is the mode with the control-thread re-prime (section 8).",
         "frameCount per call is observable only as a mean over each one-second interval (the ring keeps the sum of frame counts and the number of calls, not each call's frame count). A constant mean does not prove that every call asked for the same number of frames.",
         "Elapsed time is MEASURED per sample from the host clock (mach host ticks read on the control thread), never assumed from the timer's nominal one second. The snapshot is not an atomic cut: counters of different readers and the producer may be from slightly different instants, so fill has a resolution of about one commit or one call.",
         "The fill slope is the least-squares slope of fill against measured time. The uncertainty is the SPREAD of the per-window (one minute) slopes, not a formula standard error: in Step 6a the printed standard error was about four times too small because the jitter is not independent. A run shorter than two minutes has at most one complete window and no spread.",
@@ -104,12 +106,12 @@ public struct RingProbeReport: Codable, Equatable, Sendable {
         "The two source-node render blocks are the non-realtime-marked kind (`initWithFormat:renderBlock:`, macOS 10.15+); the header calls the realtime-safe initializer preferred for a real-time engine, but that one is macOS 27+ and not callable from Swift. Whether this matters on this Mac is not measured.",
     ]
 
-    public static func fileStem(date: Date, timeZone: TimeZone = .current, simulated: Bool) -> String {
+    public static func fileStem(date: Date, timeZone: TimeZone = .current, simulated: Bool, recovery: Bool = false) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = timeZone
         f.dateFormat = "yyyyMMdd-HHmmss"
-        return "ringprobe-\(f.string(from: date))" + (simulated ? "-SIMULATED" : "")
+        return (recovery ? "ringrecovery-" : "ringprobe-") + f.string(from: date) + (simulated ? "-SIMULATED" : "")
     }
 
     public func jsonData() throws -> Data {
@@ -128,7 +130,7 @@ extension RingProbeReport {
         func f(_ v: Double?, _ digits: Int = 3) -> String { v.map { String(format: "%.\(digits)f", $0) } ?? "-" }
         func i(_ v: Int64?) -> String { v.map(String.init) ?? "-" }
         var out: [String] = []
-        out.append("# Ring probe report (Step 6b-2)\(isSimulated ? " - SIMULATED SOURCE" : "")")
+        out.append("# Ring probe report (Step 6b-2\(recovery != nil ? ", recovery mode of Step 6b-3a-2" : ""))\(isSimulated ? " - SIMULATED SOURCE" : "")")
         if isSimulated {
             out.append("")
             out.append("**SIMULATED: a test thread stands in for the tap and a manual-rendering engine for the device. Fabricated data: it decides nothing about this Mac.**")
@@ -204,6 +206,10 @@ extension RingProbeReport {
         out.append("")
         out.append("## 7. Notes")
         for n in notes { out.append("- \(n)") }
+        if let r = recovery {
+            out.append("")
+            out.append(contentsOf: r.markdownLines())
+        }
         out.append("")
         out.append("## What this report does and does not show")
         for a in assumptions { out.append("- \(a)") }

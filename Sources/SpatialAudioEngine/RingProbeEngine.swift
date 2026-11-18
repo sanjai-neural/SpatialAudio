@@ -128,6 +128,11 @@ final class RingProbeEngine: @unchecked Sendable {
         removeObserver()
     }
 
+    /// Step 6b-3a-2: stops the engine for a re-prime and nothing else: the nodes stay attached and connected and the configuration-change observer stays, so `start()` can run
+    /// again. Idempotent. (`AVAudioEngine.stop` is not documented to wait for a render block that is already running; the re-prime therefore also waits for the readers'
+    /// call counts to stop changing before it touches the cursors: docs/ARCHITECTURE.md.)
+    func pause() { engine.stop() }
+
     /// Detach both source nodes. AVAudioEngine.h: "If necessary, the engine will safely disconnect the node before detaching it."
     func detachSourceNodes() {
         for n in nodes { engine.detach(n) }
@@ -174,6 +179,32 @@ enum RingSnapshotMapper {
     /// [left, right] = [reader 0, reader 1].
     static func readers(_ s: SARingSnapshot) -> [RingReaderCounters] { [reader(s.reader.0), reader(s.reader.1)] }
 
+    /// The Step 6b-3a-1 side of one reader (the C arrays arrive as Swift tuples, so they are read through a raw buffer).
+    static func recovery(_ r: SARingReaderStats, name: String) -> RingReaderRecovery {
+        var r = r
+        let used = Int(min(r.distinctFrameCounts, UInt32(SA_RING_FRAME_TABLE_SLOTS)))
+        var table: [FrameCountEntry] = []
+        withUnsafeBytes(of: &r.frameCountValue) { values in
+            withUnsafeBytes(of: &r.frameCountCalls) { calls in
+                for k in 0..<used {
+                    table.append(FrameCountEntry(frameCount: values.load(fromByteOffset: k * MemoryLayout<UInt32>.stride, as: UInt32.self),
+                                                 calls: calls.load(fromByteOffset: k * MemoryLayout<UInt64>.stride, as: UInt64.self)))
+                }
+            }
+        }
+        let anyCall = used > 0 || r.frameCountOverflowCalls > 0
+        return RingReaderRecovery(name: name, frameCounts: table, frameCountOverflowCalls: r.frameCountOverflowCalls,
+                                  minFrameCount: anyCall ? r.minFrameCount : nil, maxFrameCount: anyCall ? r.maxFrameCount : nil,
+                                  overrunJumps: r.overrunJumps, overrunJumpFrames: r.overrunJumpFrames, divergenceJumps: r.divergenceJumps,
+                                  divergenceJumpFrames: r.divergenceJumpFrames, refusedJumps: r.refusedJumps, largestJumpFrames: r.largestJumpFrames,
+                                  diverged: r.diverged != 0, needsReprime: r.needsReprime != 0)
+    }
+
+    static func recovery(_ s: SARingSnapshot) -> RingRecoverySnapshot {
+        RingRecoverySnapshot(standingFill: s.standingFill, needsReprime: s.needsReprime != 0,
+                             readers: [recovery(s.reader.0, name: "left (reader 0)"), recovery(s.reader.1, name: "right (reader 1)")])
+    }
+
     /// Takes one snapshot of `ring` and the clock reading that goes with it.
     static func raw(ring: OpaquePointer, outputNominalRate: Double?, outputActualRate: Double?, defaultOutputChanged: Bool) -> RingProbeRawSample? {
         let ticks = AudioGetCurrentHostTime()
@@ -181,6 +212,6 @@ enum RingSnapshotMapper {
         guard SARingTakeSnapshot(ring, &s) else { return nil }
         return RingProbeRawSample(hostTicks: ticks, continuousSeconds: Double(clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW)) / 1_000_000_000,
                                   producer: producer(s), readers: readers(s), outputNominalRate: outputNominalRate, outputActualRate: outputActualRate,
-                                  defaultOutputChanged: defaultOutputChanged)
+                                  defaultOutputChanged: defaultOutputChanged, recovery: recovery(s))
     }
 }

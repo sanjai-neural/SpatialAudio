@@ -4,6 +4,8 @@ import Foundation
 //
 //   --ring-probe <seconds>            the REAL tap into the ring and a real-time AVAudioEngine at output gain 0 (1 ... 600 s)
 //   --ring-probe-simulate <seconds>   the same flow on a SIMULATED source (no Core Audio, no device); the report says SIMULATED
+//   --ring-probe-recovery <seconds>           (Step 6b-3a-2) the same as --ring-probe, plus the control-thread re-prime (stop the engine, re-prime, wait for T, restart); gain stays 0
+//   --ring-probe-recovery-simulate <seconds>  the recovery mode on the SIMULATED source; the report says SIMULATED
 //   --ring-sim-underrun=<at>,<stall>  (simulate only) the simulated producer stalls for <stall> s, <at> s after it started
 //   --ring-sim-ppm=<n>                (simulate only) the simulated producer runs n ppm faster (+) or slower (-)
 //
@@ -16,6 +18,8 @@ public struct RingProbeRequest: Equatable, Sendable {
     public var simulatedProducerPPM: Double
     public var simulatedUnderrunAtSeconds: Double?
     public var simulatedUnderrunStallSeconds: Double
+    /// Step 6b-3a-2: run with the re-prime controller (`--ring-probe-recovery`, `--ring-probe-recovery-simulate`).
+    public var recovery: Bool = false
 }
 
 public enum RingProbeArguments {
@@ -26,15 +30,17 @@ public enum RingProbeArguments {
     }
 
     public static func parse(_ arguments: [String]) -> Parsed {
-        var seconds: Double?, simulate = false, sawFlag = false
+        var seconds: Double?, simulate = false, sawFlag = false, recovery = false
         var ppm = 0.0, underrunAt: Double?, underrunStall = 0.0, sawSimOption = false
         var invalid: String?
         var iterator = arguments.dropFirst().makeIterator()
         while let a = iterator.next() {
-            if a == "--ring-probe" || a == "--ring-probe-simulate" || a.hasPrefix("--ring-probe=") || a.hasPrefix("--ring-probe-simulate=") {
-                if sawFlag { invalid = invalid ?? "give --ring-probe or --ring-probe-simulate once" }
+            let name = a.split(separator: "=", maxSplits: 1).first.map(String.init) ?? a
+            if ["--ring-probe", "--ring-probe-simulate", "--ring-probe-recovery", "--ring-probe-recovery-simulate"].contains(name) {
+                if sawFlag { invalid = invalid ?? "give one of --ring-probe, --ring-probe-simulate, --ring-probe-recovery, --ring-probe-recovery-simulate, once" }
                 sawFlag = true
-                simulate = a.hasPrefix("--ring-probe-simulate")
+                simulate = name.hasSuffix("-simulate")
+                recovery = name.hasPrefix("--ring-probe-recovery")
                 let value: String? = a.contains("=") ? String(a.drop { $0 != "=" }.dropFirst()) : iterator.next()
                 if let value, let s = Double(value) { seconds = s } else { invalid = invalid ?? "needs a number of seconds, got: \(value ?? "(missing)")" }
             } else if a.hasPrefix("--ring-sim-underrun=") {
@@ -59,6 +65,6 @@ public enum RingProbeArguments {
         if let problem = RingProbeRunner.validate(seconds: seconds) { return .invalid(problem) }
         if sawSimOption && !simulate { return .invalid("--ring-sim-* options exist only with --ring-probe-simulate") }
         return .request(RingProbeRequest(seconds: seconds, simulate: simulate, simulatedProducerPPM: ppm, simulatedUnderrunAtSeconds: underrunAt,
-                                         simulatedUnderrunStallSeconds: underrunStall))
+                                         simulatedUnderrunStallSeconds: underrunStall, recovery: recovery))
     }
 }
