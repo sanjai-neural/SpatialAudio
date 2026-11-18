@@ -27,6 +27,9 @@ Project: macOS-first desktop app giving ordinary headphones head-tracked spatial
 - Test-the-test: a regression test or a TSan run only counts once it has been shown to fail on a deliberately broken variant (mutation check).
 - The simulated user (`--simulate`, `SimulatedUser`, `SimulatedHeadPoseProvider`) produces FABRICATED data. It rehearses the self-test flow and feeds unit tests; its output must never decide sign defaults, latency, or any hardware claim.
 - Build: `swift build`. Test: `swift test` (Swift Testing, `import Testing`; Xcode must be the active developer dir — see docs/STATUS.md). Xcode only for app bundling, signing, notarization.
+- Unrelated problems: if you notice a bug, dead code or a doc error outside the current step's change, mention it in the report. Do not fix it in the same change.
+- Cleanup scope: remove an import, function, file or test only if your own change made it unused. Code that was already unused is reported, not deleted.
+- Diagnostics: every new diagnostic, probe or test rig names, in its header or doc, the question or decision it serves. If it serves none, do not add it.
 
 ## Working protocol (every step)
 1. Restate goal + exit criteria (2–3 lines). 2. Inspect relevant files. 3. Explain approach/trade-offs/risks. 4. Implement the smallest suitable change, complete code. 5. Run build + tests, report real output; for camera/headphone/ear checks give exact manual steps and wait. 6. Update docs/STATUS.md (and any other affected docs) and commit LOCALLY. 7. Report, then STOP and wait for Sanjai's confirmation before the next step. Do not push (see "Git workflow").
