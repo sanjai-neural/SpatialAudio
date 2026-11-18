@@ -25,6 +25,8 @@ if [[ "$MODE" == "plain" || "$MODE" == "all" ]]; then
   xcrun clang $FLAGS -DSA_RING_PLAIN_SAMPLES "$SRC" scripts/systemaudioring_stress.c -o "$OUT/stress_plain"
   echo "== TSan, plain samples, paced =="
   "$OUT/stress_plain" paced 600000
+  echo "== TSan, plain samples, cycles (two readers concurrently, injected faults; Step 6b-3a-1) =="
+  "$OUT/stress_plain" cycles 8000
 fi
 if [[ "$MODE" == "atomic" || "$MODE" == "all" ]]; then
   xcrun clang $FLAGS "$SRC" scripts/systemaudioring_stress.c -o "$OUT/stress_atomic"
@@ -32,4 +34,6 @@ if [[ "$MODE" == "atomic" || "$MODE" == "all" ]]; then
   "$OUT/stress_atomic" paced 600000
   echo "== TSan, production (atomic) samples, lapping =="
   "$OUT/stress_atomic" lapping 400000
+  echo "== TSan, production (atomic) samples, cycles =="
+  "$OUT/stress_atomic" cycles 8000
 fi

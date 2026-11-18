@@ -12,7 +12,12 @@
  * One producer (the tap's IO thread, `SARingIOProc`) splits the interleaved Float32 stereo tap buffer into two per-channel planes of
  * a ring and then publishes ONE producer index `w` (a 64-bit frame counter) with a release store. Two readers (one per channel, each
  * served by its own mono AVAudioSourceNode block, `SARingRender`) keep their OWN cursor and counters. A reader never changes what the
- * other reads. This spike COUNTS only: it never jumps a cursor and never re-primes (see the four departures in the docs).
+ * other reads.
+ *
+ * Step 6b-3a-1 added the render-side recovery of the design (docs/ARCHITECTURE.md, "Reading the ring from two blocks", policy table):
+ * a per-call frame-count record, a FORWARD jump of a lapped reader's own cursor to w - T, a forward jump of the reader that is BEHIND by the
+ * timestamp-phase rule, and the flags that ask the control thread for a re-prime. The re-prime itself is NOT here (Step 6b-3a-2): an
+ * underrun is still zeros-and-advance and a reader that fell behind the producer stays silent until something re-primes it.
  *
  * Real-time rule (docs/ARCHITECTURE.md): SARingIOProc, SARingWrite and SARingRender touch only raw pointers, plain structs and C11
  * atomics. No allocation, locks, logging, Objective-C, Swift or calls. scripts/scan-rt-block.sh checks the generated code.
@@ -27,6 +32,14 @@
  *  - SA_RING_DEFAULT_PRIME_CALLBACKS: how many tap callbacks of data the readers start behind the producer (T). */
 #define SA_RING_DEFAULT_CAPACITY_FRAMES 32768u   /* GUESS */
 #define SA_RING_DEFAULT_PRIME_CALLBACKS 4u       /* GUESS */
+
+/* Step 6b-3a-1. GUESSES again:
+ *  - SA_RING_FRAME_TABLE_SLOTS: how many DISTINCT frameCount values a reader remembers (the real Bluetooth runs showed one value, 558; the offline engine
+ *    showed two, 557 and 558); further distinct values are counted in one overflow counter.
+ *  - SA_RING_DEFAULT_STANDING_FILL_DIVISOR: until SARingPrime sets it, the standing fill T that an overrun jump leaves behind is capacity / divisor
+ *    (2,048 frames for the default ring: the default prime depth at 512-frame callbacks). SARingPrime replaces it with the depth it actually primed. */
+#define SA_RING_FRAME_TABLE_SLOTS 8u
+#define SA_RING_DEFAULT_STANDING_FILL_DIVISOR 16u
 
 #define SA_RING_CHANNELS 2u
 #define SA_RING_MAX_CAPACITY_FRAMES (1u << 24)   /* sanity bound on the allocation, not a tuned value */
@@ -61,8 +74,21 @@ typedef struct {
     uint64_t phaseSelfChanges;   /* this reader's own phase (cursor - sample time) differed from its previous valid call's */
     uint64_t phaseMismatches;    /* this reader's phase differed from the other reader's last published phase */
     uint64_t weakRuleViolations; /* invalid timestamp and (other cursor - mine) was neither 0 nor frameCount */
-    int64_t  cursor;           /* published, AFTER the last call advanced it by exactly its frameCount */
+    int64_t  cursor;           /* published, AFTER the last call: advanced by exactly its frameCount, plus any forward jump counted below */
     int64_t  fill;             /* w - cursor, signed, from the w and cursor loaded in THIS snapshot: negative = reader ahead of the producer */
+    /* Step 6b-3a-1: the frameCount values this reader was asked for. calls == sum(frameCountCalls[0 ..< distinctFrameCounts]) + frameCountOverflowCalls. */
+    uint32_t distinctFrameCounts;                              /* slots in use, at most SA_RING_FRAME_TABLE_SLOTS */
+    uint32_t frameCountValue[SA_RING_FRAME_TABLE_SLOTS];       /* in order of first appearance; slots past distinctFrameCounts are 0 */
+    uint64_t frameCountCalls[SA_RING_FRAME_TABLE_SLOTS];
+    uint64_t frameCountOverflowCalls;                          /* a new distinct value with no free slot */
+    uint32_t minFrameCount, maxFrameCount;                     /* over every call since creation or the last prime; 0 when there was no call */
+    /* Step 6b-3a-1: forward jumps of this reader's OWN cursor (never backward) and the requests for a re-prime. */
+    uint64_t overrunJumps, overrunJumpFrames;                  /* lapped reader moved to w - T: how often, and frames skipped beyond the normal advance */
+    uint64_t divergenceJumps, divergenceJumpFrames;            /* behind-block moved by the phase difference */
+    uint64_t refusedJumps;                                     /* a jump of more than N - T was NOT made; needsReprime was set instead */
+    uint64_t largestJumpFrames;                                /* the largest jump computed, performed or refused */
+    uint32_t diverged;                                         /* sticky until the next prime: a divergence this reader could not repair (weak rule, fractional or refused) */
+    uint32_t needsReprime;                                     /* sticky until the next prime: this reader asks the control thread for a re-prime */
 } SARingReaderStats;
 
 typedef struct {
@@ -73,6 +99,8 @@ typedef struct {
     uint32_t lastCommitFrames;
     uint32_t capacity;
     uint32_t maxCommit;
+    uint32_t standingFill;     /* T: where an overrun jump leaves a reader behind w; SARingPrime sets it to the depth it primed */
+    uint32_t needsReprime;     /* 1 if any reader asks for a re-prime (the re-prime itself is Step 6b-3a-2) */
     SARingReaderStats reader[SA_RING_CHANNELS];   /* [0] = left, [1] = right */
 } SARingSnapshot;
 
@@ -86,8 +114,8 @@ void SARingFree(SARing *_Nullable ring);
 SARingReader *_Nullable SARingGetReader(SARing *ring, uint32_t channel);
 
 /* Control thread, readers not running (engine stopped or not yet started); the producer may be running. Starts BOTH readers at the same
- * frame index, `primeCallbacks` x (frames of the latest tap callback) behind the producer index, and zeroes their counters and the
- * producer's reject record. Returns false and changes nothing if fewer than `primeCallbacks` callbacks were committed yet, if the depth is
+ * frame index, `primeCallbacks` x (frames of the latest tap callback) behind the producer index, sets the standing fill T to that depth, and zeroes
+ * their counters, their frame-count table, their jump counters and their diverged / needsReprime flags and the producer's reject record. Returns false and changes nothing if fewer than `primeCallbacks` callbacks were committed yet, if the depth is
  * zero, exceeds what was written, or exceeds what the ring can serve. It never waits: the caller waits for the commit count and retries. */
 bool SARingPrime(SARing *ring, uint32_t primeCallbacks);
 
@@ -112,7 +140,8 @@ OSStatus SARingIOProc(AudioObjectID inDevice,
 
 /* Render side, real time. One call per AVAudioSourceNode block call; the block's single call. Output must be one mono Float32 buffer with
  * room for frameCount frames, otherwise nothing is written and kAudio_ParamError is returned. If every requested frame is available the block
- * copies it; otherwise it writes frameCount zeros and sets *isSilence. The cursor advances by exactly frameCount on EVERY call. */
+ * copies it; otherwise it writes frameCount zeros and sets *isSilence. The cursor advances by exactly frameCount on EVERY call, plus at most one
+ * counted FORWARD jump of its own cursor (a lapped reader to w - T; the reader that is behind the other by the timestamp phase, by the difference). */
 OSStatus SARingRender(SARingReader *reader,
                       bool *isSilence,
                       const AudioTimeStamp *__nullable timestamp,

@@ -2,7 +2,7 @@
 # Plain (no sanitizer) build and run of the Step 6b-1 C harnesses against the ring: deterministic checks, then the threaded stress in both modes.
 # Exit 0 = every check passed. Same compiler flags as the SwiftPM build of the target (-Os), so this runs the code the scan reads.
 #
-#   scripts/check-systemaudioring.sh [check|paced|lapping|all]   which harness (default all); one at a time lets the mutation runner say WHICH detector killed a mutant
+#   scripts/check-systemaudioring.sh [check|paced|lapping|cycles|all]   which harness (default all); one at a time lets the mutation runner say WHICH detector killed a mutant
 #   scripts/check-systemaudioring.sh                              the real Sources/CSystemAudioRing/CSystemAudioRing.c
 #   SYSTEMAUDIORING_C=/path/variant.c scripts/check-systemaudioring.sh    a variant (to show the checks FAIL on a deliberately broken one)
 set -euo pipefail
@@ -18,5 +18,6 @@ if [[ "$MODE" != "check" ]]; then
   xcrun clang $FLAGS -pthread "$SRC" scripts/systemaudioring_stress.c -o "$OUT/stress"
   [[ "$MODE" == "paced" || "$MODE" == "all" ]] && "$OUT/stress" paced
   [[ "$MODE" == "lapping" || "$MODE" == "all" ]] && "$OUT/stress" lapping
+  [[ "$MODE" == "cycles" || "$MODE" == "all" ]] && "$OUT/stress" cycles
 fi
 exit 0

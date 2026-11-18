@@ -146,12 +146,16 @@ private func expectSilence(_ r: Rendered, sourceLocation: SourceLocation = #_sou
         expectSilence(render(SARingGetReader(over, 1)!, 128, initSilent: false))
         var x = stats(snapshot(over), 1)
         #expect(x.overrunBlocks == 1 && x.servedBlocks == 0 && x.underrunBlocks == 0 && x.tornBlocks == 0)
+        #expect(x.overrunJumps == 1 && x.cursor == 513 - 64)                          // w - T = 449
         for i in 0..<8 { commit(lapped, from: Int64(i * 128), frames: 128) }
         let l = SARingGetReader(lapped, 0)!
-        for _ in 0..<4 { expectSilence(render(l, 128, initSilent: false)) }          // w - r = 1024, 896, 768, 640: all overruns
+        // Step 6b-3a-1: a lapped block is zeros, and its OWN cursor goes forward to w - T (T = the default 1024 / 16 = 64 for an unprimed ring), not just by F
+        expectSilence(render(l, 128, initSilent: false))                             // w - r = 1024 > 512
         x = stats(snapshot(lapped), 0)
-        #expect(x.overrunBlocks == 4 && x.cursor == 512 && x.silentFrames == 512)
-        expectServed(render(l, 128, initSilent: true), channel: 0, cursor: 512)      // w - r == 512
+        #expect(x.overrunBlocks == 1 && x.overrunJumps == 1 && x.overrunJumpFrames == 832 && x.cursor == 960 && x.silentFrames == 128)
+        expectSilence(render(l, 128, initSilent: false))                             // T = 64 < 128: the next block finds only 64 frames, an underrun (no recovery from an underrun here)
+        x = stats(snapshot(lapped), 0)
+        #expect(x.underrunBlocks == 1 && x.overrunJumps == 1 && x.cursor == 1088)
         for i in 0..<8 { commit(big, from: Int64(i * 128), frames: 128); commit(big2, from: Int64(i * 128), frames: 128) }
         #expect(SARingPrime(big, 4) && SARingPrime(big2, 4))                          // start = 1024 - 512 = 512
         expectSilence(render(SARingGetReader(big, 0)!, 513, initSilent: false))      // oversize wins over every other reason, and still advances by 513
@@ -240,8 +244,8 @@ private func expectSilence(_ r: Rendered, sourceLocation: SourceLocation = #_sou
         let ring = SARingCreate(1024)!
         defer { SARingFree(ring) }
         for i in 0..<4 { commit(ring, from: Int64(i * 128), frames: 128) }
-        for _ in 0..<5 { _ = render(SARingGetReader(ring, 0)!, 128, initSilent: true) }
-        for _ in 0..<3 { _ = render(SARingGetReader(ring, 1)!, 128, initSilent: true) }
+        for i in 0..<5 { _ = render(SARingGetReader(ring, 0)!, 128, sampleTime: Double(i * 128), initSilent: true) }   // the same render times for both readers: equal phase
+        for i in 0..<3 { _ = render(SARingGetReader(ring, 1)!, 128, sampleTime: Double(i * 128), initSilent: true) }
         let s = snapshot(ring)
         for ch in 0..<2 {
             let x = stats(s, ch)
@@ -253,31 +257,44 @@ private func expectSilence(_ r: Rendered, sourceLocation: SourceLocation = #_sou
         #expect(SARingGetReader(ring, 2) == nil)
     }
 
-    @Test func theTimestampPhaseAndTheWeakerRuleAreCountedNeverActedOn() {
+    @Test func aBlockThatIsBehindByTheTimestampPhaseJumpsForwardAndWithNoUsablePhaseTheRingOnlyCountsAndFlags() {
         let ring = SARingCreate(4096)!
         defer { SARingFree(ring) }
         for i in 0..<16 { commit(ring, from: Int64(i * 128), frames: 128) }
         let rd = [SARingGetReader(ring, 0)!, SARingGetReader(ring, 1)!]
         for c in 0..<6 {                                                             // R is not asked in cycle 2
-            _ = render(rd[0], 128, sampleTime: Double(c * 128), initSilent: true)
-            if c != 2 { _ = render(rd[1], 128, sampleTime: Double(c * 128), initSilent: true) }
+            expectServed(render(rd[0], 128, sampleTime: Double(c * 128), initSilent: true), channel: 0, cursor: Int64(c * 128))
+            if c != 2 { expectServed(render(rd[1], 128, sampleTime: Double(c * 128), initSilent: true), channel: 1, cursor: Int64(c * 128)) }   // from cycle 3 R reads where L reads
         }
         var s = snapshot(ring)
         #expect(stats(s, 1).phaseSelfChanges == 1 && stats(s, 0).phaseSelfChanges == 0)
-        #expect(stats(s, 0).phaseMismatches == 2 && stats(s, 1).phaseMismatches == 3)   // counts depend on the block order; data and cursors never do
+        #expect(stats(s, 0).phaseMismatches == 0 && stats(s, 1).phaseMismatches == 1)    // R saw L's phase at once, counted it, and jumped
+        #expect(stats(s, 1).divergenceJumps == 1 && stats(s, 1).divergenceJumpFrames == 128 && stats(s, 0).divergenceJumps == 0)
+        #expect(stats(s, 0).cursor == 768 && stats(s, 1).cursor == 768 && s.needsReprime == 0)
         let ring2 = SARingCreate(4096)!
         defer { SARingFree(ring2) }
         for i in 0..<16 { commit(ring2, from: Int64(i * 128), frames: 128) }
         let a = [SARingGetReader(ring2, 0)!, SARingGetReader(ring2, 1)!]
-        for _ in 0..<4 {                                                             // unusable stamps: flag unset, NaN with the flag, a NULL stamp
+        for c in 0..<12 {                                                            // lockstep cycles with unusable stamps: flag unset, NaN with the flag, a NULL stamp
             for k in 0..<2 {
-                _ = render(a[k], 128, sampleTime: 12345, valid: false, initSilent: true)
-                _ = render(a[k], 128, sampleTime: .nan, initSilent: true)
-                _ = render(a[k], 128, sampleTime: nil, initSilent: true)
+                switch c % 3 {
+                case 0: _ = render(a[k], 128, sampleTime: 12345, valid: false, initSilent: true)
+                case 1: _ = render(a[k], 128, sampleTime: .nan, initSilent: true)
+                default: _ = render(a[k], 128, sampleTime: nil, initSilent: true)
+                }
             }
         }
         s = snapshot(ring2)
         #expect(stats(s, 0).phaseValidCalls == 0 && stats(s, 0).phaseInvalidCalls == 12 && stats(s, 1).phaseInvalidCalls == 12)
+        #expect(s.needsReprime == 0 && stats(s, 0).diverged == 0 && stats(s, 1).diverged == 0)   // lockstep (d is 0 or frameCount) is not divergence
+        _ = render(a[0], 128, sampleTime: nil, initSilent: true)                    // L runs again before R: the next cycle R is a whole frameCount behind
+        for k in 0..<2 { _ = render(a[k], 128, sampleTime: nil, initSilent: true) }
+        s = snapshot(ring2)
+        for ch in 0..<2 {
+            let x = stats(s, ch)
+            #expect(x.weakRuleViolations >= 1 && x.diverged == 1 && x.needsReprime == 1 && x.divergenceJumps == 0 && x.overrunJumps == 0)   // no phase to realign by: flag, request, never jump
+        }
+        #expect(s.needsReprime == 1)
     }
 
     @Test func aReaderAheadOfTheProducerAtTheMomentOfTheCallIsSilentEvenOnAWrappedRing() {
@@ -330,6 +347,44 @@ private func expectSilence(_ r: Rendered, sourceLocation: SourceLocation = #_sou
     }
 
     // MARK: the Objective-C factory and an OFFLINE engine (no device, nothing audible)
+
+    @Test func eachReaderRecordsTheFrameCountsItWasAskedForAndPrimeForgetsThem() {
+        let ring = SARingCreate(4096)!
+        defer { SARingFree(ring) }
+        for i in 0..<16 { commit(ring, from: Int64(i * 128), frames: 128) }
+        let l = SARingGetReader(ring, 0)!, r = SARingGetReader(ring, 1)!
+        var t = 0.0
+        for F in [5, 7, 5, 300, 2, 5] { _ = render(l, F, sampleTime: t, initSilent: true); t += Double(F) }
+        t = 0
+        for F in [64, 64, 32] { _ = render(r, F, sampleTime: t, initSilent: true); t += Double(F) }
+        let s = snapshot(ring)
+        let x = stats(s, 0), y = stats(s, 1)
+        #expect(x.distinctFrameCounts == 4 && x.frameCountValue.0 == 5 && x.frameCountCalls.0 == 3 && x.frameCountValue.1 == 7 && x.frameCountValue.2 == 300 && x.frameCountValue.3 == 2)
+        #expect(x.minFrameCount == 2 && x.maxFrameCount == 300 && x.frameCountOverflowCalls == 0 && x.calls == 6)
+        #expect(y.distinctFrameCounts == 2 && y.frameCountValue.0 == 64 && y.frameCountCalls.0 == 2 && y.frameCountValue.1 == 32 && y.minFrameCount == 32 && y.maxFrameCount == 64)
+        #expect(SARingPrime(ring, 4))
+        let p = stats(snapshot(ring), 0)
+        #expect(p.distinctFrameCounts == 0 && p.minFrameCount == 0 && p.maxFrameCount == 0 && p.calls == 0 && p.frameCountValue.0 == 0)
+    }
+
+    @Test func aJumpOfMoreThanTheRingMinusTheStandingFillIsRefusedAndAsksForAReprimeAndExactlyThatMuchIsMade() {
+        // ring 1024, primed at T = 256 (two 128-frame callbacks): the bound N - T is 768 frames of jump.
+        for extra in [0, 1] {
+            let ring = SARingCreate(1024)!
+            defer { SARingFree(ring) }
+            for i in 0..<4 { commit(ring, from: Int64(i * 128), frames: 128) }
+            #expect(SARingPrime(ring, 2))
+            for i in 0..<7 { commit(ring, from: Int64(512 + i * 128), frames: 128) }                 // w = 1408: lapped by 1152, a jump of 768
+            if extra == 1 { commit(ring, from: 1408, frames: 1) }                                    // w = 1409: a jump of 769
+            expectSilence(render(SARingGetReader(ring, 0)!, 128, sampleTime: 500, initSilent: false))
+            let s = snapshot(ring), x = stats(s, 0)
+            if extra == 0 {
+                #expect(x.overrunJumps == 1 && x.overrunJumpFrames == 768 && x.cursor == 1152 && x.refusedJumps == 0 && x.needsReprime == 0 && s.needsReprime == 0)
+            } else {
+                #expect(x.overrunJumps == 0 && x.refusedJumps == 1 && x.largestJumpFrames == 769 && x.cursor == 384 && x.needsReprime == 1 && s.needsReprime == 1 && x.diverged == 0)
+            }
+        }
+    }
 
     @Test func theSourceNodeFactoryAcceptsOnlyMonoFloat32() {
         let ring = SARingCreate(1024)!

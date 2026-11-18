@@ -15,4 +15,4 @@ trap 'rm -rf "$OUT"' EXIT
 FLAGS=(-std=c11 -g -O1 -fsanitize=undefined,float-cast-overflow -fno-sanitize-recover=all -mmacosx-version-min=14.0 -Wno-function-effects -ISources/CSystemAudioRing/include -Iscripts -pthread)
 if [[ "$MODE" == "all" || "$MODE" == "check" ]]; then xcrun clang $FLAGS -DSA_RING_TEST_HOOKS "$SRC" scripts/systemaudioring_check.c -o "$OUT/check"; "$OUT/check"; fi
 if [[ "$MODE" == "all" || "$MODE" == "hostile" ]]; then xcrun clang $FLAGS "$SRC" scripts/systemaudioring_hostile.c -o "$OUT/hostile"; "$OUT/hostile"; fi
-if [[ "$MODE" == "all" || "$MODE" == "stress" ]]; then xcrun clang $FLAGS "$SRC" scripts/systemaudioring_stress.c -o "$OUT/stress"; "$OUT/stress" paced 400000; fi
+if [[ "$MODE" == "all" || "$MODE" == "stress" ]]; then xcrun clang $FLAGS "$SRC" scripts/systemaudioring_stress.c -o "$OUT/stress"; "$OUT/stress" paced 400000; "$OUT/stress" lapping 300000; "$OUT/stress" cycles 4000; fi

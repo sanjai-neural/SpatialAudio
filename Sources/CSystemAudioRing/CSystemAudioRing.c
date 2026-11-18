@@ -47,12 +47,21 @@ struct SARingReader {
                      oversizeBlocks, badBufferBlocks, silentFrames;
     _Atomic uint64_t phaseValidCalls, phaseInvalidCalls, phaseSelfChanges, phaseMismatches, weakRuleViolations;
     _Atomic uint64_t phaseBits;             /* bit pattern of the last valid phase (cursor - sample time), SA_PHASE_NONE_BITS if none */
+    /* Step 6b-3a-1. Same single-writer rule: only this reader's block (or SARingPrime while no block runs) writes any of these. */
+    _Atomic uint32_t ftUsed;                /* frame-count table: slots in use; stored with RELEASE after the new slot's value and count are written */
+    _Atomic uint32_t ftValue[SA_RING_FRAME_TABLE_SLOTS];
+    _Atomic uint64_t ftCalls[SA_RING_FRAME_TABLE_SLOTS];
+    _Atomic uint64_t ftOverflow;            /* calls with a new distinct value and no free slot */
+    _Atomic uint64_t minFrames, maxFrames;  /* minFrames is UINT64_MAX until the first call (a 64-bit word so that a real UINT32_MAX request cannot mean "none") */
+    _Atomic uint64_t overrunJumps, overrunJumpFrames, divergenceJumps, divergenceJumpFrames, refusedJumps, largestJump;
+    _Atomic uint32_t diverged, needsReprime;  /* sticky 0 / 1, cleared only by SARingPrime */
 };
 
 struct SARing {
     uint32_t capacity;                      /* N, a power of two */
     uint32_t mask;                          /* N - 1 */
     uint32_t maxCommit;                     /* N / 2: the most frames one producer commit may carry; also the in-flight margin */
+    _Atomic uint32_t standingFill;          /* T: written by SARingCreate and SARingPrime (control thread, no block running); read relaxed by the blocks */
     SASample *plane[SA_RING_CHANNELS];      /* frame j of channel c lives in plane[c][j & mask] */
     /* Written ONLY by the producer. */
     _Alignas(64) _Atomic int64_t w;         /* frames committed; released AFTER the frame data */
@@ -77,6 +86,27 @@ static inline __attribute__((always_inline)) CA_REALTIME_API void sa_reject(SARi
 
 static inline __attribute__((always_inline)) CA_REALTIME_API double sa_bits_to_double(uint64_t b) { return __builtin_bit_cast(double, b); }
 static inline __attribute__((always_inline)) CA_REALTIME_API uint64_t sa_double_to_bits(double d) { return __builtin_bit_cast(uint64_t, d); }
+
+/* Step 6b-3a-1: remember the frameCount of this call. A small table of distinct values with their call counts (a linear scan of at most
+ * SA_RING_FRAME_TABLE_SLOTS words), one overflow counter, min and max. Single writer (the reader's own block): relaxed loads and stores, no
+ * read-modify-write, no allocation, no calls. The new slot's value and count are stored before `ftUsed` is released, so a control-thread
+ * snapshot that acquires `ftUsed` sees them. */
+static inline __attribute__((always_inline)) CA_REALTIME_API void sa_record_frames(SARingReader *rd, uint32_t frameCount) {
+    const uint32_t used = atomic_load_explicit(&rd->ftUsed, memory_order_relaxed);
+    uint32_t i = 0;
+    while (i < used && atomic_load_explicit(&rd->ftValue[i], memory_order_relaxed) != frameCount) i++;
+    if (i < used) {
+        sa_bump(&rd->ftCalls[i], 1);
+    } else if (used < SA_RING_FRAME_TABLE_SLOTS) {
+        atomic_store_explicit(&rd->ftValue[used], frameCount, memory_order_relaxed);
+        atomic_store_explicit(&rd->ftCalls[used], 1, memory_order_relaxed);
+        atomic_store_explicit(&rd->ftUsed, used + 1u, memory_order_release);
+    } else {
+        sa_bump(&rd->ftOverflow, 1);
+    }
+    if ((uint64_t)frameCount < atomic_load_explicit(&rd->minFrames, memory_order_relaxed)) atomic_store_explicit(&rd->minFrames, frameCount, memory_order_relaxed);
+    if ((uint64_t)frameCount > atomic_load_explicit(&rd->maxFrames, memory_order_relaxed)) atomic_store_explicit(&rd->maxFrames, frameCount, memory_order_relaxed);
+}
 
 /* The sample stores of one commit: de-interleave `frames` stereo frames into the two planes starting at frame index w0. Shared by sa_write and by the
  * test hook that writes a commit WITHOUT publishing it. */
@@ -130,6 +160,13 @@ SARing *SARingCreate(uint32_t capacityFrames) {
     ring->capacity = capacityFrames;
     ring->mask = capacityFrames - 1u;
     ring->maxCommit = capacityFrames / 2u;
+    {   /* default standing fill T: capacity / divisor, at least 1 and never more than the serve window (a GUESS until SARingPrime sets the real depth) */
+        const uint32_t window = capacityFrames - ring->maxCommit;
+        uint32_t t = capacityFrames / SA_RING_DEFAULT_STANDING_FILL_DIVISOR;
+        if (t < 1u) t = 1u;
+        if (t > window) t = window;
+        atomic_init(&ring->standingFill, t);
+    }
     atomic_init(&ring->w, 0);
     atomic_init(&ring->commits, 0);
     atomic_init(&ring->rejectedCommits, 0);
@@ -147,6 +184,11 @@ SARing *SARingCreate(uint32_t capacityFrames) {
         atomic_init(&rd->phaseValidCalls, 0); atomic_init(&rd->phaseInvalidCalls, 0); atomic_init(&rd->phaseSelfChanges, 0);
         atomic_init(&rd->phaseMismatches, 0); atomic_init(&rd->weakRuleViolations, 0);
         atomic_init(&rd->phaseBits, SA_PHASE_NONE_BITS);
+        atomic_init(&rd->ftUsed, 0);
+        for (uint32_t k = 0; k < SA_RING_FRAME_TABLE_SLOTS; k++) { atomic_init(&rd->ftValue[k], 0); atomic_init(&rd->ftCalls[k], 0); }
+        atomic_init(&rd->ftOverflow, 0); atomic_init(&rd->minFrames, UINT64_MAX); atomic_init(&rd->maxFrames, 0);
+        atomic_init(&rd->overrunJumps, 0); atomic_init(&rd->overrunJumpFrames, 0); atomic_init(&rd->divergenceJumps, 0); atomic_init(&rd->divergenceJumpFrames, 0);
+        atomic_init(&rd->refusedJumps, 0); atomic_init(&rd->largestJump, 0); atomic_init(&rd->diverged, 0); atomic_init(&rd->needsReprime, 0);
     }
     return ring;
 }
@@ -182,8 +224,16 @@ bool SARingPrime(SARing *ring, uint32_t primeCallbacks) {
         atomic_store_explicit(&rd->phaseValidCalls, 0, memory_order_relaxed); atomic_store_explicit(&rd->phaseInvalidCalls, 0, memory_order_relaxed);
         atomic_store_explicit(&rd->phaseSelfChanges, 0, memory_order_relaxed); atomic_store_explicit(&rd->phaseMismatches, 0, memory_order_relaxed);
         atomic_store_explicit(&rd->weakRuleViolations, 0, memory_order_relaxed);
+        atomic_store_explicit(&rd->ftUsed, 0, memory_order_relaxed);
+        for (uint32_t k = 0; k < SA_RING_FRAME_TABLE_SLOTS; k++) { atomic_store_explicit(&rd->ftValue[k], 0, memory_order_relaxed); atomic_store_explicit(&rd->ftCalls[k], 0, memory_order_relaxed); }
+        atomic_store_explicit(&rd->ftOverflow, 0, memory_order_relaxed); atomic_store_explicit(&rd->minFrames, UINT64_MAX, memory_order_relaxed); atomic_store_explicit(&rd->maxFrames, 0, memory_order_relaxed);
+        atomic_store_explicit(&rd->overrunJumps, 0, memory_order_relaxed); atomic_store_explicit(&rd->overrunJumpFrames, 0, memory_order_relaxed);
+        atomic_store_explicit(&rd->divergenceJumps, 0, memory_order_relaxed); atomic_store_explicit(&rd->divergenceJumpFrames, 0, memory_order_relaxed);
+        atomic_store_explicit(&rd->refusedJumps, 0, memory_order_relaxed); atomic_store_explicit(&rd->largestJump, 0, memory_order_relaxed);
+        atomic_store_explicit(&rd->diverged, 0, memory_order_relaxed); atomic_store_explicit(&rd->needsReprime, 0, memory_order_relaxed);
         atomic_store_explicit(&rd->phaseBits, SA_PHASE_NONE_BITS, memory_order_relaxed);
     }
+    atomic_store_explicit(&ring->standingFill, (uint32_t)depth, memory_order_relaxed);   /* T := the depth just primed (depth <= window, so it fits) */
     atomic_store_explicit(&ring->rejectedCommits, 0, memory_order_relaxed);
     atomic_store_explicit(&ring->rejectFlags, 0, memory_order_relaxed);
     return true;
@@ -198,6 +248,8 @@ bool SARingTakeSnapshot(const SARing *ring, SARingSnapshot *out) {
     out->lastCommitFrames = atomic_load_explicit(&ring->lastCommitFrames, memory_order_relaxed);
     out->capacity = ring->capacity;
     out->maxCommit = ring->maxCommit;
+    out->standingFill = atomic_load_explicit(&ring->standingFill, memory_order_relaxed);
+    out->needsReprime = 0;
     for (uint32_t c = 0; c < SA_RING_CHANNELS; c++) {
         const SARingReader *rd = &ring->readers[c];
         SARingReaderStats *s = &out->reader[c];
@@ -219,6 +271,25 @@ bool SARingTakeSnapshot(const SARing *ring, SARingSnapshot *out) {
         s->phaseSelfChanges = atomic_load_explicit(&rd->phaseSelfChanges, memory_order_relaxed);
         s->phaseMismatches = atomic_load_explicit(&rd->phaseMismatches, memory_order_relaxed);
         s->weakRuleViolations = atomic_load_explicit(&rd->weakRuleViolations, memory_order_relaxed);
+        const uint32_t used = atomic_load_explicit(&rd->ftUsed, memory_order_acquire);   /* pairs with the release in sa_record_frames */
+        s->distinctFrameCounts = used;
+        for (uint32_t k = 0; k < SA_RING_FRAME_TABLE_SLOTS; k++) {
+            s->frameCountValue[k] = k < used ? atomic_load_explicit(&rd->ftValue[k], memory_order_relaxed) : 0;
+            s->frameCountCalls[k] = k < used ? atomic_load_explicit(&rd->ftCalls[k], memory_order_relaxed) : 0;
+        }
+        s->frameCountOverflowCalls = atomic_load_explicit(&rd->ftOverflow, memory_order_relaxed);
+        const uint64_t mn = atomic_load_explicit(&rd->minFrames, memory_order_relaxed);
+        s->minFrameCount = mn == UINT64_MAX ? 0u : (uint32_t)mn;
+        s->maxFrameCount = (uint32_t)atomic_load_explicit(&rd->maxFrames, memory_order_relaxed);
+        s->overrunJumps = atomic_load_explicit(&rd->overrunJumps, memory_order_relaxed);
+        s->overrunJumpFrames = atomic_load_explicit(&rd->overrunJumpFrames, memory_order_relaxed);
+        s->divergenceJumps = atomic_load_explicit(&rd->divergenceJumps, memory_order_relaxed);
+        s->divergenceJumpFrames = atomic_load_explicit(&rd->divergenceJumpFrames, memory_order_relaxed);
+        s->refusedJumps = atomic_load_explicit(&rd->refusedJumps, memory_order_relaxed);
+        s->largestJumpFrames = atomic_load_explicit(&rd->largestJump, memory_order_relaxed);
+        s->diverged = atomic_load_explicit(&rd->diverged, memory_order_relaxed);
+        s->needsReprime = atomic_load_explicit(&rd->needsReprime, memory_order_relaxed);
+        if (s->needsReprime) out->needsReprime = 1;
     }
     return true;
 }
@@ -255,7 +326,17 @@ OSStatus SARingIOProc(AudioObjectID inDevice,
 /* ---- render side, real time ----
  * no_builtin: the zero-fill loop below must stay a loop. Without it Apple clang turns the loop into a call to `bzero` (seen in the first
  * release object of this step, found by the scan); no_builtin("memset") alone did NOT stop that, the bare attribute does. The scan, not this
- * attribute, is the safety net. (The copy loop reads relaxed atomics, which clang does not turn into memcpy.) */
+ * attribute, is the safety net. (The copy loop reads relaxed atomics, which clang does not turn into memcpy.)
+ *
+ * Step 6b-3a-1 (render-side recovery of docs/ARCHITECTURE.md, "Under/overrun and divergence policy"). Per call, in this order:
+ *   1. record the frameCount asked for (table, min, max);
+ *   2. the timestamp phase (or the weaker rule): a block that is BEHIND the other by the phase rule jumps its OWN cursor FORWARD by the difference
+ *      (a jump larger than N - T is refused and sets needsReprime; an unusable timestamp or a fractional difference only counts and flags);
+ *   3. availability: oversize / underrun / overrun / copy / torn as before; an OVERRUN also moves the cursor forward to w - T (never backward, never
+ *      less than the normal advance), again refused above N - T;
+ *   4. the cursor advances by exactly frameCount on EVERY call, or ends at the overrun target.
+ * Nothing here ever moves a cursor backward or touches the other reader's cursor; the underrun path is unchanged (zeros and advance: the control thread's
+ * re-prime, Step 6b-3a-2, is what ends a starvation). */
 OSStatus SARingRender(SARingReader *rd,
                       bool *isSilence,
                       const AudioTimeStamp *__nullable ts,
@@ -264,25 +345,58 @@ OSStatus SARingRender(SARingReader *rd,
     const SARing *ring = rd->ring;
     const int64_t F = (int64_t)frameCount;
     /* Our own cursor: only this block (or SARingPrime, while no block runs) ever writes it, so a relaxed load reads our own last store. */
-    const int64_t r = atomic_load_explicit(&rd->cursor, memory_order_relaxed);
+    int64_t r = atomic_load_explicit(&rd->cursor, memory_order_relaxed);
+    sa_record_frames(rd, frameCount);
+    const int64_t standing = (int64_t)atomic_load_explicit(&ring->standingFill, memory_order_relaxed);   /* T */
+    const int64_t maxJump = (int64_t)ring->capacity - standing;                                           /* N - T: a bigger jump asks for a re-prime instead */
+    bool phaseUsable = false;
 
-    /* Count-only: the timestamp phase, or the weaker rule when the sample time is not usable (docs: "Divergence"). */
+    /* The timestamp phase, or the weaker rule when the sample time is not usable (docs: "Divergence"). */
     if (ts && (ts->mFlags & kAudioTimeStampSampleTimeValid) && __builtin_isfinite(ts->mSampleTime)) {
-        const double phase = (double)r - ts->mSampleTime;
+        phaseUsable = true;
+        double phase = (double)r - ts->mSampleTime;
         const double mine = sa_bits_to_double(atomic_load_explicit(&rd->phaseBits, memory_order_relaxed));
         const double theirs = sa_bits_to_double(atomic_load_explicit(&rd->peer->phaseBits, memory_order_relaxed));
         if (mine == mine && mine != phase) sa_bump(&rd->phaseSelfChanges, 1);
-        if (theirs == theirs && theirs != phase) sa_bump(&rd->phaseMismatches, 1);
+        if (theirs == theirs && theirs != phase) {
+            sa_bump(&rd->phaseMismatches, 1);
+            const double diff = theirs - phase;
+            if (diff > 0.0) {
+                /* This block is BEHIND: move its own cursor forward by the difference, so both blocks read the same frames again. Only a whole, sane number of frames. */
+                const int64_t k = diff < 9.0e15 ? (int64_t)(diff + 0.5) : 0;
+                if (k <= 0 || __builtin_fabs((double)k - diff) > 1.0e-6) {
+                    atomic_store_explicit(&rd->diverged, 1, memory_order_relaxed);        /* fractional or absurd difference: cannot be repaired here */
+                    atomic_store_explicit(&rd->needsReprime, 1, memory_order_relaxed);
+                } else {
+                    if ((uint64_t)k > atomic_load_explicit(&rd->largestJump, memory_order_relaxed)) atomic_store_explicit(&rd->largestJump, (uint64_t)k, memory_order_relaxed);
+                    if (k > maxJump) {
+                        sa_bump(&rd->refusedJumps, 1);
+                        atomic_store_explicit(&rd->needsReprime, 1, memory_order_relaxed);
+                    } else {
+                        r += k;
+                        sa_bump(&rd->divergenceJumps, 1);
+                        sa_bump(&rd->divergenceJumpFrames, (uint64_t)k);
+                        phase = (double)r - ts->mSampleTime;   /* the phase after the jump: what the other block should now see */
+                    }
+                }
+            }
+            /* diff < 0: this block is AHEAD and does nothing; the other block is the one that moves. */
+        }
         atomic_store_explicit(&rd->phaseBits, sa_double_to_bits(phase), memory_order_relaxed);
         sa_bump(&rd->phaseValidCalls, 1);
     } else {
         const int64_t d = atomic_load_explicit(&rd->peer->cursor, memory_order_relaxed) - r;
-        if (d != 0 && d != F) sa_bump(&rd->weakRuleViolations, 1);
+        if (d != 0 && d != F) {
+            sa_bump(&rd->weakRuleViolations, 1);
+            atomic_store_explicit(&rd->diverged, 1, memory_order_relaxed);        /* no phase to realign by: count, flag, no jump */
+            atomic_store_explicit(&rd->needsReprime, 1, memory_order_relaxed);
+        }
         sa_bump(&rd->phaseInvalidCalls, 1);
     }
 
     OSStatus status = 0;
     bool silent = false;
+    int64_t next = r + F;   /* where the cursor ends: the normal advance, unless an overrun moves it forward */
     if (!(out && out->mNumberBuffers == 1 && out->mBuffers[0].mNumberChannels == 1 && out->mBuffers[0].mData &&
           (((uintptr_t)out->mBuffers[0].mData & 3u) == 0) && (uint64_t)out->mBuffers[0].mDataByteSize >= (uint64_t)frameCount * 4u)) {
         sa_bump(&rd->badBufferBlocks, 1);
@@ -298,6 +412,23 @@ OSStatus SARingRender(SARingReader *rd,
             sa_bump(&rd->underrunBlocks, 1);
         } else if (w1 - r > window) {
             sa_bump(&rd->overrunBlocks, 1);
+            /* Lapped: this block's frames are gone. Zeros now; the cursor goes forward to w - T so that the NEXT call reads a standing fill of T. Forward only:
+             * a target at or behind the normal advance means no jump at all. */
+            const int64_t target = w1 - standing;
+            if (target > next) {
+                const int64_t jump = target - next;
+                if ((uint64_t)jump > atomic_load_explicit(&rd->largestJump, memory_order_relaxed)) atomic_store_explicit(&rd->largestJump, (uint64_t)jump, memory_order_relaxed);
+                if (jump > maxJump) {
+                    sa_bump(&rd->refusedJumps, 1);
+                    atomic_store_explicit(&rd->needsReprime, 1, memory_order_relaxed);
+                } else {
+                    next = target;
+                    sa_bump(&rd->overrunJumps, 1);
+                    sa_bump(&rd->overrunJumpFrames, (uint64_t)jump);
+                    /* The phase the next call should compute, if the render time then advances by F as assumed: keeps this jump from reading as a self-change. */
+                    atomic_store_explicit(&rd->phaseBits, phaseUsable ? sa_double_to_bits((double)target - (ts->mSampleTime + (double)F)) : SA_PHASE_NONE_BITS, memory_order_relaxed);
+                }
+            }
         } else {
             const SASample *src = ring->plane[rd->channel];
             const uint64_t mask = ring->mask;
@@ -323,6 +454,6 @@ OSStatus SARingRender(SARingReader *rd,
     *isSilence = silent;
     sa_bump(&rd->calls, 1);
     sa_bump(&rd->framesRequested, frameCount);
-    atomic_store_explicit(&rd->cursor, r + F, memory_order_relaxed);   /* advance by exactly the frames asked for, on EVERY call */
+    atomic_store_explicit(&rd->cursor, next, memory_order_relaxed);   /* exactly frameCount on EVERY call, or the overrun target (forward only) */
     return status;
 }

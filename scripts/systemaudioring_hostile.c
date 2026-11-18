@@ -67,6 +67,32 @@ int main(void) {
         CHECK(renderRaw(rd, &silent, &w, 64, exact, 64 * 4u) == 0, "weird sample time %zu", i);
     }
     CHECK(SARingRender(rd, &silent, NULL, 8, NULL) == kAudio_ParamError, "NULL list and NULL timestamp");
+    /* ---- Step 6b-3a-1: the divergence-jump arithmetic with absurd sample times on BOTH blocks (infinite, enormous, denormal differences between the two phases; a block
+     *      that is far behind; fractional differences). Whatever happens (a jump, a refusal, a flag), nothing may be undefined: UBSan runs with float-cast-overflow and
+     *      recovery off, and every buffer ends at a guard page. The cursor must only ever move forward. ---- */
+    {
+        SARing *ring2 = SARingCreate(1024);
+        for (int i = 0; i < 4; i++) saCommit(ring2, i * 128, 128);
+        SARingReader *a = SARingGetReader(ring2, 0), *b = SARingGetReader(ring2, 1);
+        const double ts2[] = { 0.0, 1.0, 0.5, -0.5, 1e300, -1e300, 1.7976931348623157e308, -1.7976931348623157e308, 9007199254740993.0, -9007199254740993.0, 4.9e-324, 9.0e15, 8.999999999999e15, 1.0e15, 63.5, 128.25 };
+        int64_t lastA = 0, lastB = 0;
+        for (size_t i = 0; i < sizeof ts2 / sizeof ts2[0]; i++)
+            for (size_t j = 0; j < sizeof ts2 / sizeof ts2[0]; j++) {
+                AudioTimeStamp ta = { 0 }, tb = { 0 };
+                ta.mSampleTime = ts2[i]; ta.mFlags = kAudioTimeStampSampleTimeValid;
+                tb.mSampleTime = ts2[j]; tb.mFlags = kAudioTimeStampSampleTimeValid;
+                float *ba = (float *)guarded(64 * 4), *bb = (float *)guarded(64 * 4);
+                silent = false;
+                CHECK(renderRaw(a, &silent, &ta, 64, ba, 64 * 4u) == 0, "absurd phases L %zu/%zu", i, j);
+                CHECK(renderRaw(b, &silent, &tb, 64, bb, 64 * 4u) == 0, "absurd phases R %zu/%zu", i, j);
+                SARingSnapshot sa;
+                SARingTakeSnapshot(ring2, &sa);
+                CHECK(sa.reader[0].cursor >= lastA + 64 && sa.reader[1].cursor >= lastB + 64, "absurd phases %zu/%zu: a cursor moved backward or by less than frameCount", i, j);
+                lastA = sa.reader[0].cursor; lastB = sa.reader[1].cursor;
+                CHECK(sa.reader[0].refusedJumps == 0 || sa.reader[0].needsReprime == 1, "refused jump without a request");
+            }
+        SARingFree(ring2);
+    }
 
     /* ---- producer: lists that lie or describe nothing ---- */
     AudioTimeStamp now = { 0 };
