@@ -87,10 +87,13 @@ public final class SimulatedRingBackend: RingProbeBackend, @unchecked Sendable {
 
     /// Step 6b-3b: the simulated device-bound run (a rehearsal of the flow and the report; its tap rate and output rate are FABRICATED, so its verdict decides nothing).
     public let tapMode: RingProbeTapMode
+    /// Step 6b-3c-0: a SIMULATED process-specific tap (a rehearsal of the flow; the target object and every number are fabricated).
+    public let processTapSpec: ProcessTapSpec?
 
     public init(pacing: Pacing, faults: Faults = Faults(), format: TapFormat = SimulatedRingBackend.realTapLikeFormat,
-                capacityFrames: UInt32 = SA_RING_DEFAULT_CAPACITY_FRAMES, readsUntilGone: Int = 2, deviceTap: Bool = false) {
-        self.tapMode = deviceTap ? .deviceBound : .globalMixdown
+                capacityFrames: UInt32 = SA_RING_DEFAULT_CAPACITY_FRAMES, readsUntilGone: Int = 2, deviceTap: Bool = false, processTap: ProcessTapSpec? = nil) {
+        self.processTapSpec = processTap
+        self.tapMode = processTap != nil ? .processSpecific : (deviceTap ? .deviceBound : .globalMixdown)
         self.pacing = pacing; self.faults = faults; self.format = format; self.capacityFrames = capacityFrames; self.readsUntilGone = readsUntilGone
         ringConstants = RingProbeConstants(capacityFrames: capacityFrames, primeCallbacks: SA_RING_DEFAULT_PRIME_CALLBACKS)
         renderBuffer = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate > 0 ? format.sampleRate : 48_000, channels: 2)
@@ -106,6 +109,8 @@ public final class SimulatedRingBackend: RingProbeBackend, @unchecked Sendable {
     public func preflight() -> String? { nil }
     public func translateOwnPID() -> (object: UInt32, status: Int32) { (7777, 0) }
     public func createTap(excludingProcessObjects: [UInt32]) -> (tap: UInt32, status: Int32) { tapAlive = true; return (101, 0) }
+    public func translateTargetProcess() -> (object: UInt32, status: Int32)? { processTapSpec.map { (UInt32(truncatingIfNeeded: $0.targetPID) &+ 9000, 0) } }
+    public func createProcessTap(includingProcessObjects: [UInt32]) -> (tap: UInt32, status: Int32) { tapAlive = true; return (101, 0) }
     public func readTapUID(_ tap: UInt32) -> (uid: String?, status: Int32) { ("SIMULATED-TAP-UID", 0) }
     public func readTapFormat(_ tap: UInt32) -> (format: TapFormat?, status: Int32) { (format, 0) }
 

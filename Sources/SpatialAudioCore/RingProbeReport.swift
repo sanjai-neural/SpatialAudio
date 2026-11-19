@@ -82,6 +82,10 @@ public struct RingProbeReport: Codable, Equatable, Sendable {
     public var tapMode: RingProbeTapMode?
     /// Step 6b-3b: the pre-registered rate-fix check; present only in the device-bound tap mode.
     public var rateFix: RateFixReport?
+    /// Step 6b-3c-0: the PID of the tapped test player (process-specific mode only). A number, not a name.
+    public var targetProcessPID: Int32?
+    /// Step 6b-3c-0: the fault the probe injected into its own resources (process-specific mode only).
+    public var muteScenario: MuteScenarioRecord?
 
     public var isSimulated: Bool { source == "simulated" }
 
@@ -113,12 +117,12 @@ public struct RingProbeReport: Codable, Equatable, Sendable {
         "The two source-node render blocks are the non-realtime-marked kind (`initWithFormat:renderBlock:`, macOS 10.15+); the header calls the realtime-safe initializer preferred for a real-time engine, but that one is macOS 27+ and not callable from Swift. Whether this matters on this Mac is not measured.",
     ]
 
-    public static func fileStem(date: Date, timeZone: TimeZone = .current, simulated: Bool, recovery: Bool = false, deviceTap: Bool = false) -> String {
+    public static func fileStem(date: Date, timeZone: TimeZone = .current, simulated: Bool, recovery: Bool = false, deviceTap: Bool = false, processTap: Bool = false) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = timeZone
         f.dateFormat = "yyyyMMdd-HHmmss"
-        return (deviceTap ? "ringdevicetap-" : (recovery ? "ringrecovery-" : "ringprobe-")) + f.string(from: date) + (simulated ? "-SIMULATED" : "")
+        return (processTap ? "ringprocesstap-" : (deviceTap ? "ringdevicetap-" : (recovery ? "ringrecovery-" : "ringprobe-"))) + f.string(from: date) + (simulated ? "-SIMULATED" : "")
     }
 
     public func jsonData() throws -> Data {
@@ -137,7 +141,7 @@ extension RingProbeReport {
         func f(_ v: Double?, _ digits: Int = 3) -> String { v.map { String(format: "%.\(digits)f", $0) } ?? "-" }
         func i(_ v: Int64?) -> String { v.map(String.init) ?? "-" }
         var out: [String] = []
-        out.append("# Ring probe report (Step 6b-2\(recovery != nil ? ", recovery mode of Step 6b-3a-2" : "")\(tapMode == .deviceBound ? ", device-bound tap of Step 6b-3b" : ""))\(isSimulated ? " - SIMULATED SOURCE" : "")")
+        out.append("# Ring probe report (Step 6b-2\(recovery != nil ? ", recovery mode of Step 6b-3a-2" : "")\(tapMode == .deviceBound ? ", device-bound tap of Step 6b-3b" : "")\(tapMode == .processSpecific ? ", process-specific tap of Step 6b-3c-0" : ""))\(isSimulated ? " - SIMULATED SOURCE" : "")")
         if isSimulated {
             out.append("")
             out.append("**SIMULATED: a test thread stands in for the tap and a manual-rendering engine for the device. Fabricated data: it decides nothing about this Mac.**")
@@ -147,7 +151,21 @@ extension RingProbeReport {
         out.append("- Created: \(createdAt)   macOS: \(macOSVersion)   Model: \(hardwareModel)")
         out.append("- Outcome: **\(outcome)**   stopped by: \(stoppedBy)   requested: \(f(requestedSeconds, 1)) s   measured span: \(f(elapsedSeconds, 3)) s")
         out.append("- Flags: \(flags.isEmpty ? "none" : flags.joined(separator: "; "))")
-        if let m = tapMode { out.append("- Tap mode: \(m == .deviceBound ? "device-bound (the tap is bound to the default output device's stream 0; its rate is what the spike measures, not an assumption)" : "global stereo mixdown")") }
+        if muteBehavior != "unmuted" {
+            out.append("")
+            out.append("**THE TARGET PROCESS'S AUDIO WAS MUTED BY THIS RUN (mute behaviour: \(muteBehavior)). It must be audible again after the probe has ended; if it is not, see docs/MANUAL_TEST_STEP6B3C0.md.**")
+            out.append("")
+        }
+        if let m = tapMode {
+            switch m {
+            case .deviceBound: out.append("- Tap mode: device-bound (the tap is bound to the default output device's stream 0; its rate is what the spike measures, not an assumption)")
+            case .processSpecific: out.append("- Tap mode: process-specific (a tap on ONE process, PID \(targetProcessPID.map(String.init) ?? "-"), bound to the default output device's stream 0; mute behaviour: \(muteBehavior); our own process is not in the tap)")
+            case .globalMixdown: out.append("- Tap mode: global stereo mixdown")
+            }
+        }
+        if let sc = muteScenario {
+            out.append("- Mute scenario: \(sc.kind) requested at \(sc.requestedAtSeconds) s; fired at \(sc.firedAtElapsedSeconds.map { String(format: "%.3f", $0) } ?? "never (the run ended first)") s measured, status \(sc.status.map(String.init) ?? "-")")
+        }
         out.append("- Output gain: set to \(f(outputGain.setTo, 1)), read back before start \(f(outputGain.readBackBeforeStart)), after start \(f(outputGain.readBackAfterStart)), at end \(f(outputGain.readBackAtEnd))")
         out.append("- Configuration changes (engine): \(configurationChanges)   Teardown clean: \(teardownClean ? "YES" : "NO")")
         if let c = constants { out.append("- Ring constants (GUESSES, not tuned): capacity N = \(c.capacityFrames) frames per channel, prime depth T = \(c.primeCallbacks) callbacks") }

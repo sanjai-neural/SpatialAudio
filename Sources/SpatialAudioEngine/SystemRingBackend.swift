@@ -19,7 +19,12 @@ import SpatialAudioCore
 public final class SystemRingBackend: RingProbeBackend {
     public let source = "coreAudioTap"
     public var composition: String {
-        let tap = tapMode == .deviceBound ? "a tap BOUND TO THE DEFAULT OUTPUT DEVICE'S STREAM 0 (Step 6b-3b, device-bound)" : "the tap only"
+        let tap: String
+        switch tapMode {
+        case .globalMixdown: tap = "the tap only"
+        case .deviceBound: tap = "a tap BOUND TO THE DEFAULT OUTPUT DEVICE'S STREAM 0 (Step 6b-3b, device-bound)"
+        case .processSpecific: tap = "a tap on ONE PROCESS (the test player) bound to the default output device's stream 0 (Step 6b-3c-0, process-specific; mute behaviour \(processTapSpec?.mute.rawValue ?? "unmuted"))"
+        }
         return "private aggregate device with \(tap) (no sub-device); SARingIOProc as the IOProc; AVAudioEngine (two source nodes -> main mixer, output volume 0) on the default output device"
     }
     /// Step 6b-3b: which tap `createTap` builds (the global stereo mixdown, or the one bound to the default output device's stream).
@@ -38,7 +43,13 @@ public final class SystemRingBackend: RingProbeBackend {
     /// Test seam: true once `SARingFree` has been called on the ring. It must stay false for the whole life of this backend.
     private(set) var ringFreed = false
 
-    public init(deviceTap: Bool = false) { tapMode = deviceTap ? .deviceBound : .globalMixdown }
+    /// Step 6b-3c-0: the process-specific tap's target and mute behaviour (nil = not that mode).
+    public let processTapSpec: ProcessTapSpec?
+
+    public init(deviceTap: Bool = false, processTap: ProcessTapSpec? = nil) {
+        processTapSpec = processTap
+        tapMode = processTap != nil ? .processSpecific : (deviceTap ? .deviceBound : .globalMixdown)
+    }
 
     public func preflight() -> String? { nil }
 
@@ -79,10 +90,40 @@ public final class SystemRingBackend: RingProbeBackend {
             let uid = CoreAudioProperty.string(of: device, kAudioDevicePropertyDeviceUID)
             guard uid.status == 0, let deviceUID = uid.value else { return (0, uid.status != 0 ? uid.status : Int32(bitPattern: FourCC.value("!uid"))) }
             description = CATapDescription(__excludingProcesses: excludingProcessObjects.map { NSNumber(value: $0) }, andDeviceUID: deviceUID, withStream: 0)
+        case .processSpecific:
+            return (0, Int32(bitPattern: FourCC.value("!prc")))      // the process-specific tap is created by `createProcessTap`, never here
         }
         description.name = "SpatialAudio ring probe"
         description.isPrivate = true
         description.muteBehavior = .unmuted          // the original audio stays audible
+        var tap = AudioObjectID(kAudioObjectUnknown)
+        let status = AudioHardwareCreateProcessTap(description, &tap)
+        return (tap, status)
+    }
+
+    /// Step 6b-3c-0: the target PID's process object (`kAudioHardwarePropertyTranslatePIDToProcessObject`; "kAudioObjectUnknown" if the PID is not an audio process the system knows).
+    public func translateTargetProcess() -> (object: UInt32, status: Int32)? {
+        guard let spec = processTapSpec else { return nil }
+        var addr = CoreAudioProperty.address(kAudioHardwarePropertyTranslatePIDToProcessObject)
+        var pid = spec.targetPID
+        var object = AudioObjectID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioObjectID>.size)
+        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, UInt32(MemoryLayout<pid_t>.size), &pid, &size, &object)
+        return (object, status)
+    }
+
+    /// Step 6b-3c-0: CATapDescription.h `initWithProcesses:andDeviceUID:withStream:`, "Mix all given process audio streams destined for the selected device stream"; the description object reads back
+    /// `isExclusive == false` (scratch check of 2026-11-19), although the header's parameter text says "exclude" (a contradiction in the header). The list holds ONLY the target: our own process is absent.
+    /// The mute behaviour is the explicit option (default unmuted); what a muted tap does to the target's audio when it is destroyed or our process dies is NOT stated by the headers: that is what the experiments measure.
+    public func createProcessTap(includingProcessObjects: [UInt32]) -> (tap: UInt32, status: Int32) {
+        guard tapMode == .processSpecific, let spec = processTapSpec else { return (0, Int32(bitPattern: FourCC.value("!prc"))) }
+        guard let device = startOutputDevice ?? AudioDeviceFactsReader.defaultOutputDevice().id else { return (0, Int32(bitPattern: FourCC.value("!dev"))) }
+        let uid = CoreAudioProperty.string(of: device, kAudioDevicePropertyDeviceUID)
+        guard uid.status == 0, let deviceUID = uid.value else { return (0, uid.status != 0 ? uid.status : Int32(bitPattern: FourCC.value("!uid"))) }
+        let description = CATapDescription(__processes: includingProcessObjects.map { NSNumber(value: $0) }, andDeviceUID: deviceUID, withStream: 0)
+        description.name = "SpatialAudio ring probe (process)"
+        description.isPrivate = true
+        description.muteBehavior = spec.mute.coreAudioValue
         var tap = AudioObjectID(kAudioObjectUnknown)
         let status = AudioHardwareCreateProcessTap(description, &tap)
         return (tap, status)

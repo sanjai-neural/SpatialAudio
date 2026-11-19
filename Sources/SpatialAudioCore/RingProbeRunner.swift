@@ -33,6 +33,12 @@ public protocol RingProbeBackend: AnyObject {
     var injectedFaults: String? { get }
     /// Step 6b-3b: which tap `createTap` builds. Default (extension below): the global stereo mixdown, as in every run before 6b-3b.
     var tapMode: RingProbeTapMode { get }
+    /// Step 6b-3c-0: the process-specific tap's target and mute behaviour (nil unless `tapMode == .processSpecific`).
+    var processTapSpec: ProcessTapSpec? { get }
+    /// Step 6b-3c-0: translates the target PID to its process object (nil unless process-specific). Control thread.
+    func translateTargetProcess() -> (object: UInt32, status: Int32)?
+    /// Step 6b-3c-0: creates the process-specific tap, which lists ONLY these process objects. Default: unsupported.
+    func createProcessTap(includingProcessObjects: [UInt32]) -> (tap: UInt32, status: Int32)
 
     func preflight() -> String?
     /// Numbers only: no name, no UID.
@@ -78,6 +84,9 @@ public protocol RingProbeBackend: AnyObject {
 
 extension RingProbeBackend {
     public var tapMode: RingProbeTapMode { .globalMixdown }
+    public var processTapSpec: ProcessTapSpec? { nil }
+    public func translateTargetProcess() -> (object: UInt32, status: Int32)? { nil }
+    public func createProcessTap(includingProcessObjects: [UInt32]) -> (tap: UInt32, status: Int32) { (0, -1) }
     /// One `SARingPrime` with the backend's named default T (what the plain modes use).
     public func prime() -> Bool { prime(callbacks: ringConstants.primeCallbacks) }
 }
@@ -145,6 +154,9 @@ public enum RingProbeRunner {
         static let prepareEngine = "AVAudioEngine: attach 2 source nodes (mono Float32), connect to the main mixer, output volume forced to 0"
         static let prime = "SARingPrime"
         static let rateGuard = "rate-equality guard (device-bound tap rate against the output device's nominal rate)"
+        static let translateTarget = "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTranslatePIDToProcessObject) for the TARGET process"
+        static let scenarioDestroyTap = "scenario: AudioHardwareDestroyProcessTap while the IO runs"
+        static let scenarioStopIO = "scenario: AudioDeviceStop while the tap lives"
         static let startEngine = "AVAudioEngine startAndReturnError"
         static let gainRefusal = "output gain read-back"
         static let ownPIDAfter = "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTranslatePIDToProcessObject) after the engine started"
@@ -153,7 +165,8 @@ public enum RingProbeRunner {
     /// Runs the probe through `backend`. Always tears down what it created, in the protocol's order, on every path.
     public static func run(backend: RingProbeBackend, ticker: RingProbeTicker, environment: RingProbeEnvironment, clock: TapProbeClock,
                            settleLimitSeconds: Double = 2.0, pollIntervalSeconds: Double = RingProbeRunner.pollIntervalSeconds,
-                           windowSeconds: Double = RingProbeAnalyzer.defaultWindowSeconds, recovery: RingProbeRecovery? = nil) -> RingProbeReport {
+                           windowSeconds: Double = RingProbeAnalyzer.defaultWindowSeconds, recovery: RingProbeRecovery? = nil,
+                           muteScenario: MuteScenario? = nil, onEvent: ((String) -> Void)? = nil) -> RingProbeReport {
         var calls: [TapProbeCall] = []
         var notes: [String] = []
         var lists = TapProbeLists(settlePolls: 0, settleSeconds: nil)
@@ -168,6 +181,8 @@ public enum RingProbeRunner {
         var ownAfter: UInt32?
         var invalidReason: String?
         var interrupted = false
+        var scenarioRecord: MuteScenarioRecord? = muteScenario.map { MuteScenarioRecord(kind: $0.kind.rawValue, requestedAtSeconds: $0.atSeconds) }
+        var tapDestroyedEarly = false, ioStoppedEarly = false
 
         func log(_ name: String, _ status: Int32, _ note: String? = nil) { calls.append(TapProbeCall(name: name, status: status, note: note)) }
         func failed(_ name: String) { if outcome == "ok" { outcome = "failed at \(name)" } }
@@ -205,7 +220,31 @@ public enum RingProbeRunner {
                 notes.append("Refused before creating anything: \(refusal)")
                 break build
             }
-            let tap = backend.createTap(excludingProcessObjects: excluded)
+            if muteScenario != nil && backend.tapMode != .processSpecific {
+                outcome = "refused: a mute scenario needs the process-specific tap"
+                notes.append("Refused before creating anything: a mute scenario needs the process-specific tap.")
+                break build
+            }
+            let tap: (tap: UInt32, status: Int32)
+            if backend.tapMode == .processSpecific {
+                guard let spec = backend.processTapSpec, let translated = backend.translateTargetProcess() else {
+                    outcome = "refused: the process-specific tap has no target"
+                    notes.append("Refused before creating anything: the process-specific tap has no target process.")
+                    break build
+                }
+                log(Name.translateTarget, translated.status, translated.object == 0 ? "kAudioObjectUnknown" : "object \(translated.object)")
+                guard translated.status == 0 else { failed(Name.translateTarget); break build }
+                switch ProcessTapPlan.make(targetObject: translated.object, ownObject: own.status == 0 && own.object != 0 ? own.object : nil, targetPID: spec.targetPID, ownPID: environment.ownPID) {
+                case .failure(let why):
+                    outcome = "refused: \(ProcessTapPlan.message(why))"
+                    notes.append("Refused before creating the tap: \(ProcessTapPlan.message(why)).")
+                    break build
+                case .success(let include):
+                    tap = backend.createProcessTap(includingProcessObjects: include)
+                }
+            } else {
+                tap = backend.createTap(excludingProcessObjects: excluded)
+            }
             log(TapProbeRunner.Name.createTap, tap.status, tap.status == 0 ? "tap object \(tap.tap)" : nil)
             guard tap.status == 0, tap.tap != 0 else { failed(TapProbeRunner.Name.createTap); break build }
             tapID = tap.tap
@@ -225,7 +264,7 @@ public enum RingProbeRunner {
 
             // Step 6b-3b (a2), device-bound mode ONLY: G0's rate half. A tap that does not arrive at the output device's rate is the old setup again (the engine converts and
             // over-asks); S0 exists to find that out, so the run stops here, cleanly, with the format recorded. The global mode never had this guard and must not get it.
-            if backend.tapMode == .deviceBound {
+            if backend.tapMode != .globalMixdown {
                 let g = RateEqualityGuard.check(tapRate: f.sampleRate, outputNominalRate: outputFacts.nominalSampleRate)
                 log(Name.rateGuard, g.passes ? 0 : -1, g.passes ? "equal" : g.reason)
                 guard g.passes else {
@@ -336,6 +375,7 @@ public enum RingProbeRunner {
 
             // 8. Sample once per timer tick; elapsed time is measured per sample from the host ticks.
             ticker.start(periodSeconds: samplePeriodSeconds)
+            if let spec = backend.processTapSpec { onEvent?("SAMPLING STARTED: the tap lists ONLY process \(spec.targetPID); its mute behaviour is \(spec.mute.rawValue)\(spec.mute == .unmuted ? "" : ": that process's audio should now be SILENT")") }
             let firstSampleClock = clock.now()
             guard takeSample() else { failed("snapshot"); break build }
             timings.firstSampleRunClockSeconds = firstSampleClock
@@ -351,6 +391,23 @@ public enum RingProbeRunner {
                 if wake == .tick {
                     guard takeSample(act: true) else { failed("snapshot"); break sampling }
                     if let why = recovery?.gaveUp { failed("recovery: \(why)"); reason = "recovery gave up"; break sampling }
+                    if let scenario = muteScenario, scenarioRecord?.firedAtElapsedSeconds == nil, samples.last!.elapsedSeconds >= scenario.atSeconds {
+                        let at = samples.last!.elapsedSeconds
+                        let status: Int32
+                        switch scenario {
+                        case .destroyTap:
+                            status = backend.destroyTap(tap.tap)
+                            tapDestroyedEarly = true
+                            log(Name.scenarioDestroyTap, status, "at \(String(format: "%.3f", at)) s measured")
+                        case .stopIO:
+                            status = backend.stop(agg.device)
+                            ioStoppedEarly = true
+                            log(Name.scenarioStopIO, status, "at \(String(format: "%.3f", at)) s measured")
+                        }
+                        scenarioRecord?.firedAtElapsedSeconds = at
+                        scenarioRecord?.status = status
+                        onEvent?("SCENARIO \(scenario.kind.rawValue) performed at \(String(format: "%.1f", at)) s (status \(status)): the target's audio should come back within \(String(format: "%.0f", MuteExperimentCriteria.returnWithinSeconds)) s")
+                    }
                     if samples.last!.elapsedSeconds >= environment.requestedSeconds { break sampling }
                 }
             }
@@ -368,15 +425,22 @@ public enum RingProbeRunner {
         // sampling timer off, engine stop, source nodes detached, IO stopped, IOProc destroyed, aggregate destroyed, tap destroyed, then the ring's fate.
         var order: [String] = []
         var destroyStatuses: [Int32] = []
+        onEvent?("SAMPLING ENDED: teardown begins")
         ticker.stop(); order.append("sampling timer off")
         if enginePrepared {
             backend.stopEngine(); order.append("engine stop")
             backend.detachSourceNodes(); order.append("source nodes detached")
         }
-        if started, let a = aggregateID { let s = backend.stop(a); log(TapProbeRunner.Name.stop, s); destroyStatuses.append(s); order.append("IO stop") }
+        if started, let a = aggregateID {
+            if ioStoppedEarly { order.append("IO stop (done earlier by the scenario)") }
+            else { let s = backend.stop(a); log(TapProbeRunner.Name.stop, s); destroyStatuses.append(s); order.append("IO stop") }
+        }
         if ioProcCreated, let a = aggregateID { let s = backend.destroyIOProc(on: a); log(TapProbeRunner.Name.destroyIOProc, s); destroyStatuses.append(s); order.append("IOProc destroyed") }
         if let a = aggregateID { let s = backend.destroyAggregate(a); log(TapProbeRunner.Name.destroyAggregate, s, "asynchronous according to AudioHardware.h"); destroyStatuses.append(s); order.append("aggregate destroyed") }
-        if let t = tapID { let s = backend.destroyTap(t); log(TapProbeRunner.Name.destroyTap, s); destroyStatuses.append(s); order.append("tap destroyed") }
+        if let t = tapID {
+            if tapDestroyedEarly { order.append("tap destroyed (done earlier by the scenario)") }
+            else { let s = backend.destroyTap(t); log(TapProbeRunner.Name.destroyTap, s); destroyStatuses.append(s); order.append("tap destroyed") }
+        }
         var disposition: RingDisposition?
         if ringCreated {
             let d = backend.finishRing(); disposition = d
@@ -402,6 +466,7 @@ public enum RingProbeRunner {
         }
         log(TapProbeRunner.Name.devicesList, lastDevStatus, "after teardown, last of \(lists.settlePolls) read(s)")
         log(TapProbeRunner.Name.tapsList, lastTapStatus, "after teardown, last of \(lists.settlePolls) read(s)")
+        onEvent?("TEARDOWN COMPLETE: the probe is about to exit")
         let teardownClean = verified && destroyStatuses.allSatisfy { $0 == 0 }
         if !teardownClean {
             if !verified { notes.append("Teardown could NOT be verified through the device and tap lists within \(String(format: "%.1f", settleLimitSeconds)) s.") }
@@ -455,7 +520,10 @@ public enum RingProbeRunner {
             }
         }
         report.tapMode = backend.tapMode
-        if backend.tapMode == .deviceBound {
+        report.muteBehavior = backend.processTapSpec?.mute.rawValue ?? "unmuted"
+        report.targetProcessPID = backend.processTapSpec?.targetPID
+        report.muteScenario = scenarioRecord
+        if backend.tapMode != .globalMixdown {
             let epochs = RingEpochSlopes.compute(report: report)
             report.rateFix = RateFixEvaluator.evaluate(RateFixInput(report: report), epochs: epochs)
         }

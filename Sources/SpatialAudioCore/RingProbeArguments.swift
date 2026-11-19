@@ -24,6 +24,12 @@ public struct RingProbeRequest: Equatable, Sendable {
     public var recovery: Bool = false
     /// Step 6b-3b: `--ring-probe-device-tap`.
     public var deviceTap: Bool = false
+    /// Step 6b-3c-0: `--ring-probe-process-pid=<pid>`: tap that ONE process only (never combined with `--ring-probe-device-tap`).
+    public var processPID: Int32?
+    /// `--ring-probe-tap-mute=...` (only with a process pid). The default is unmuted.
+    public var tapMute: RingProbeMuteBehavior = RingProbeMuteBehavior.defaultBehavior
+    /// `--ring-probe-mute-scenario=destroy-tap@<s>|stop-io@<s>` (only with a process pid).
+    public var muteScenario: MuteScenario?
 }
 
 public enum RingProbeArguments {
@@ -35,12 +41,26 @@ public enum RingProbeArguments {
 
     public static func parse(_ arguments: [String]) -> Parsed {
         var seconds: Double?, simulate = false, sawFlag = false, recovery = false, deviceTap = false, sawDeviceTap = false
+        var processPID: Int32?, sawProcessPID = false, tapMute = RingProbeMuteBehavior.defaultBehavior, sawTapMute = false, muteScenario: MuteScenario?, sawScenario = false
         var ppm = 0.0, underrunAt: Double?, underrunStall = 0.0, sawSimOption = false
         var invalid: String?
         var iterator = arguments.dropFirst().makeIterator()
         while let a = iterator.next() {
             let name = a.split(separator: "=", maxSplits: 1).first.map(String.init) ?? a
-            if name == "--ring-probe-device-tap" {
+            if name == "--ring-probe-process-pid" {
+                if sawProcessPID { invalid = invalid ?? "give --ring-probe-process-pid once" }
+                sawProcessPID = true
+                let value = a.contains("=") ? String(a.drop { $0 != "=" }.dropFirst()) : ""
+                if let pid = Int32(value), pid > 0 { processPID = pid } else { invalid = invalid ?? "--ring-probe-process-pid=<pid> needs a positive process id, got: \(value.isEmpty ? "(missing)" : value)" }
+            } else if name == "--ring-probe-tap-mute" {
+                sawTapMute = true
+                let value = a.contains("=") ? String(a.drop { $0 != "=" }.dropFirst()) : ""
+                if let m = RingProbeMuteBehavior.parse(value) { tapMute = m } else { invalid = invalid ?? "--ring-probe-tap-mute needs unmuted, muted or mutedwhentapped, got: \(value.isEmpty ? "(missing)" : value)" }
+            } else if name == "--ring-probe-mute-scenario" {
+                sawScenario = true
+                let value = a.contains("=") ? String(a.drop { $0 != "=" }.dropFirst()) : ""
+                if let sc = MuteScenario.parse(value) { muteScenario = sc } else { invalid = invalid ?? "--ring-probe-mute-scenario needs destroy-tap@<seconds> or stop-io@<seconds> (seconds above 0), got: \(value.isEmpty ? "(missing)" : value)" }
+            } else if name == "--ring-probe-device-tap" {
                 if a.contains("=") { invalid = invalid ?? "--ring-probe-device-tap takes no value" }
                 if sawDeviceTap { invalid = invalid ?? "give --ring-probe-device-tap once" }
                 sawDeviceTap = true
@@ -63,19 +83,22 @@ public enum RingProbeArguments {
                 else { invalid = invalid ?? "--ring-sim-ppm needs a number within +/- 100000" }
             }
         }
-        guard sawFlag || sawSimOption || sawDeviceTap else { return .notRequested }
+        guard sawFlag || sawSimOption || sawDeviceTap || sawProcessPID || sawTapMute || sawScenario else { return .notRequested }
         if !sawFlag {
-            return .invalid(sawSimOption ? "--ring-sim-* needs --ring-probe-simulate <seconds>" : "--ring-probe-device-tap needs one of --ring-probe, --ring-probe-simulate, --ring-probe-recovery, --ring-probe-recovery-simulate")
+            let needs = "one of --ring-probe, --ring-probe-simulate, --ring-probe-recovery, --ring-probe-recovery-simulate"
+            return .invalid(sawSimOption ? "--ring-sim-* needs --ring-probe-simulate <seconds>" : (sawDeviceTap ? "--ring-probe-device-tap needs \(needs)" : "--ring-probe-process-pid, --ring-probe-tap-mute and --ring-probe-mute-scenario need \(needs)"))
         }
         // No gain option exists. Naming one is refused, so nobody believes it took effect.
         if let g = arguments.dropFirst().first(where: { $0.hasPrefix("--") && ($0.lowercased().contains("gain") || $0.lowercased().contains("volume")) }) {
             return .invalid("there is no gain or volume option (\(g.prefix(24))): this mode runs at output gain 0 and cannot be changed")
         }
         if let invalid { return .invalid(invalid) }
+        if sawProcessPID && sawDeviceTap { return .invalid("--ring-probe-process-pid and --ring-probe-device-tap are two different taps: give one") }
+        if (sawTapMute || sawScenario) && !sawProcessPID { return .invalid("--ring-probe-tap-mute and --ring-probe-mute-scenario exist only with --ring-probe-process-pid (a mute is never applied to the all-but-us tap)") }
         guard let seconds else { return .invalid("needs a number of seconds") }
         if let problem = RingProbeRunner.validate(seconds: seconds) { return .invalid(problem) }
         if sawSimOption && !simulate { return .invalid("--ring-sim-* options exist only with --ring-probe-simulate") }
         return .request(RingProbeRequest(seconds: seconds, simulate: simulate, simulatedProducerPPM: ppm, simulatedUnderrunAtSeconds: underrunAt,
-                                         simulatedUnderrunStallSeconds: underrunStall, recovery: recovery, deviceTap: deviceTap))
+                                         simulatedUnderrunStallSeconds: underrunStall, recovery: recovery, deviceTap: deviceTap, processPID: processPID, tapMute: tapMute, muteScenario: muteScenario))
     }
 }

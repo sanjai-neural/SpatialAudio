@@ -17,9 +17,15 @@ public enum RingProbeCommand {
         public var recovery: RePrimeConfig?
         /// Step 6b-3b: build the tap bound to the default output device's stream (`--ring-probe-device-tap`). false = the global mixdown, as before.
         public var deviceTap: Bool
+        /// Step 6b-3c-0: a tap on ONE process (the test player) with an explicit mute option (default unmuted); never combined with `deviceTap`.
+        public var processTap: ProcessTapSpec?
+        /// Step 6b-3c-0: a fault the probe injects into its own resources (needs `processTap`).
+        public var muteScenario: MuteScenario?
 
-        public init(seconds: Double, simulate: Bool = false, simulatedFaults: SimulatedRingBackend.Faults = .init(), recovery: RePrimeConfig? = nil, deviceTap: Bool = false) {
+        public init(seconds: Double, simulate: Bool = false, simulatedFaults: SimulatedRingBackend.Faults = .init(), recovery: RePrimeConfig? = nil, deviceTap: Bool = false,
+                    processTap: ProcessTapSpec? = nil, muteScenario: MuteScenario? = nil) {
             self.seconds = seconds; self.simulate = simulate; self.simulatedFaults = simulatedFaults; self.recovery = recovery; self.deviceTap = deviceTap
+            self.processTap = processTap; self.muteScenario = muteScenario
         }
     }
 
@@ -31,11 +37,11 @@ public enum RingProbeCommand {
         let ticker = DispatchRingTicker()
         let backend: RingProbeBackend
         if options.simulate {
-            let sim = SimulatedRingBackend(pacing: .realTime, faults: options.simulatedFaults, deviceTap: options.deviceTap)
+            let sim = SimulatedRingBackend(pacing: .realTime, faults: options.simulatedFaults, deviceTap: options.deviceTap, processTap: options.processTap)
             sim.onConfigurationChange = { ticker.interrupt() }
             backend = sim
         } else if #available(macOS 14.2, *) {
-            let real = SystemRingBackend(deviceTap: options.deviceTap)
+            let real = SystemRingBackend(deviceTap: options.deviceTap, processTap: options.processTap)
             real.onConfigurationChange = { ticker.interrupt() }
             backend = real
         } else {
@@ -67,6 +73,8 @@ public enum RingProbeCommand {
         defer { sources.forEach { $0.cancel() }; signal(SIGINT, SIG_DFL); signal(SIGTERM, SIG_DFL) }
 
         let orchestrator = options.recovery.map { RingRecoveryOrchestrator(backend: backend, config: $0) }
-        return RingProbeRunner.run(backend: backend, ticker: ticker, environment: environment, clock: clock, recovery: orchestrator)
+        // Events (the scenario, the start and the end of the sampling, the teardown) are printed AS THEY HAPPEN and flushed, so that someone watching the output file sees them in time.
+        return RingProbeRunner.run(backend: backend, ticker: ticker, environment: environment, clock: clock, recovery: orchestrator, muteScenario: options.muteScenario,
+                                   onEvent: { print($0); fflush(stdout) })
     }
 }

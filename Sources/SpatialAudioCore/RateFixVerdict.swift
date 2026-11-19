@@ -18,6 +18,8 @@ import Foundation
 public enum RingProbeTapMode: String, Codable, Sendable, Equatable {
     case globalMixdown
     case deviceBound
+    /// Step 6b-3c-0: a tap on ONE chosen process (the test player), bound to the output device's stream; the target's own audio may be muted (an explicit option, default unmuted).
+    case processSpecific
 }
 
 /// G0's rate half: the tap's rate must equal the output device's nominal rate. Rates are whole Hz values, so half a Hz of tolerance only absorbs floating-point noise.

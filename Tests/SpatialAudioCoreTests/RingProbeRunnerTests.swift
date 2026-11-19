@@ -76,6 +76,16 @@ final class FakeRingBackend: RingProbeBackend {
     /// Step 6b-3b: the output device's numbers and the tap mode are knobs (the defaults are what every earlier test saw).
     var outputFacts = RingOutputFacts(transportType: "fake", nominalSampleRate: 48_000, actualSampleRate: 48_000)
     var tapMode: RingProbeTapMode = .globalMixdown
+    /// Step 6b-3c-0: the process-specific tap's target (nil = not that mode), what the fake translates it to, and what `createProcessTap` was given.
+    var processTapSpec: ProcessTapSpec?
+    var targetTranslate: (object: UInt32, status: Int32) = (30, 0)
+    var processTapIncluded: [UInt32]?
+    func translateTargetProcess() -> (object: UInt32, status: Int32)? { log.add("translateTarget"); return processTapSpec == nil ? nil : targetTranslate }
+    func createProcessTap(includingProcessObjects: [UInt32]) -> (tap: UInt32, status: Int32) {
+        log.add("createProcessTap"); processTapIncluded = includingProcessObjects
+        if failCreateTap { return (0, -1) }
+        tapAlive = true; return (11, 0)
+    }
     func outputDeviceFacts() -> RingOutputFacts { outputFacts }
     func translateOwnPID() -> (object: UInt32, status: Int32) { (7, 0) }
     func createTap(excludingProcessObjects: [UInt32]) -> (tap: UInt32, status: Int32) { log.add("createTap"); if failCreateTap { return (0, -1) }; tapAlive = true; return (11, 0) }
