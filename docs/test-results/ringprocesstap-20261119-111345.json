@@ -1,0 +1,1144 @@
+{
+  "assumptions" : [
+    "Measurement only: the engine's main mixer output volume is 0 (set in code, read back before the engine starts; the run is refused otherwise, and the mode has no option that changes it). Nothing is audible from this probe, nothing is stored, and the tap is unmuted: the original audio plays as usual.",
+    "A reader advances its cursor by exactly the frameCount it was asked for on EVERY call, served or not (plus, since Step 6b-3a-1, a counted forward jump after an overrun or by the phase rule). After an underrun a reader is therefore AHEAD of the producer (negative fill) and, at equal producer and reader rate, STAYS starved. In this plain mode NOTHING ends a starvation (no re-prime): it is EXPECTED. `--ring-probe-recovery` is the mode with the control-thread re-prime (section 8).",
+    "frameCount per call is observable only as a mean over each one-second interval (the ring keeps the sum of frame counts and the number of calls, not each call's frame count). A constant mean does not prove that every call asked for the same number of frames.",
+    "Elapsed time is MEASURED per sample from the host clock (mach host ticks read on the control thread), never assumed from the timer's nominal one second. The snapshot is not an atomic cut: counters of different readers and the producer may be from slightly different instants, so fill has a resolution of about one commit or one call.",
+    "The fill slope is the least-squares slope of fill against measured time. The uncertainty is the SPREAD of the per-window (one minute) slopes, not a formula standard error: in Step 6a the printed standard error was about four times too small because the jitter is not independent. A run shorter than two minutes has at most one complete window and no spread.",
+    "The tap's callbacks and the engine's pulls are both compared with the HOST clock here. Nothing in this report says anything about sound, latency, CPU load, or whether the product graph (HRTF, environment node) behaves the same; the graph is two source nodes into the main mixer.",
+    "The two source-node render blocks are the non-realtime-marked kind (`initWithFormat:renderBlock:`, macOS 10.15+); the header calls the realtime-safe initializer preferred for a real-time engine, but that one is macOS 27+ and not callable from Swift. Whether this matters on this Mac is not measured."
+  ],
+  "calls" : [
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyDevices)",
+      "note" : "before",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTapList)",
+      "note" : "before",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTranslatePIDToProcessObject)",
+      "note" : "object 146",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTranslatePIDToProcessObject) for the TARGET process",
+      "note" : "object 145",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioHardwareCreateProcessTap",
+      "note" : "tap object 147",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(tap, kAudioTapPropertyUID)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(tap, kAudioTapPropertyFormat)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "rate-equality guard (device-bound tap rate against the output device's nominal rate)",
+      "note" : "equal",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "SARingCreate (control thread)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioHardwareCreateAggregateDevice",
+      "note" : "device 148",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioDeviceCreateIOProcID (SARingIOProc, client data = the ring)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioDeviceStart",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AVAudioEngine: attach 2 source nodes (mono Float32), connect to the main mixer, output volume forced to 0",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "SARingPrime",
+      "note" : "after 5 attempt(s)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AVAudioEngine startAndReturnError",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTranslatePIDToProcessObject) after the engine started",
+      "note" : "object 146",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyDevices)",
+      "note" : "while running",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTapList)",
+      "note" : "while running",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioDeviceStop",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioDeviceDestroyIOProcID",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioHardwareDestroyAggregateDevice",
+      "note" : "asynchronous according to AudioHardware.h",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioHardwareDestroyProcessTap",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyDevices)",
+      "note" : "after teardown, last of 2 read(s)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    },
+    {
+      "name" : "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTapList)",
+      "note" : "after teardown, last of 2 read(s)",
+      "status" : 0,
+      "statusName" : "kAudioHardwareNoError"
+    }
+  ],
+  "composition" : "private aggregate device with a tap on ONE PROCESS (the test player) bound to the default output device's stream 0 (Step 6b-3c-0, process-specific; mute behaviour muted) (no sub-device); SARingIOProc as the IOProc; AVAudioEngine (two source nodes -> main mixer, output volume 0) on the default output device",
+  "configurationChanges" : 0,
+  "constants" : {
+    "capacityFrames" : 32768,
+    "primeCallbacks" : 4
+  },
+  "createdAt" : "2026-11-19T11:13:35+05:30",
+  "elapsedSeconds" : 10.000721708333334,
+  "engine" : {
+    "mixerOutputSampleRate" : 48000,
+    "outputNodeChannels" : 2,
+    "outputNodeSampleRate" : 48000,
+    "realTime" : true,
+    "sourceChannels" : 1,
+    "sourceSampleRate" : 48000
+  },
+  "excludedProcessObjects" : [
+    146
+  ],
+  "flags" : [
+
+  ],
+  "hardwareModel" : "Mac16,12",
+  "hostTicksPerSecond" : 24000000,
+  "kind" : "ring probe (Step 6b-2)",
+  "lists" : {
+    "aggregateListedAfter" : false,
+    "aggregateListedDuring" : true,
+    "devicesAfter" : 5,
+    "devicesBefore" : 4,
+    "devicesDuring" : 6,
+    "settlePolls" : 2,
+    "settleSeconds" : 0.005744749999999854,
+    "tapListedAfter" : false,
+    "tapListedDuring" : true,
+    "tapsAfter" : 0,
+    "tapsBefore" : 0,
+    "tapsDuring" : 1
+  },
+  "macOSVersion" : "Version 27.2 (Build 26B123)",
+  "muteBehavior" : "muted",
+  "notes" : [
+
+  ],
+  "outcome" : "ok",
+  "outputDevice" : {
+    "actualSampleRate" : 48000,
+    "bufferFrameSize" : 512,
+    "inputChannels" : 0,
+    "nominalSampleRate" : 48000,
+    "outputChannels" : 2,
+    "statuses" : {
+      "kAudioDevicePropertyActualSampleRate" : 0,
+      "kAudioDevicePropertyBufferFrameSize" : 0,
+      "kAudioDevicePropertyClockDevice" : 0,
+      "kAudioDevicePropertyClockDomain" : 0,
+      "kAudioDevicePropertyDeviceUID" : 0,
+      "kAudioDevicePropertyLatency" : 0,
+      "kAudioDevicePropertyNominalSampleRate" : 0,
+      "kAudioDevicePropertySafetyOffset" : 0,
+      "kAudioDevicePropertyStreamConfiguration (input)" : 0,
+      "kAudioDevicePropertyStreamConfiguration (output)" : 0,
+      "kAudioDevicePropertyStreams" : 0,
+      "kAudioDevicePropertyTransportType" : 0,
+      "kAudioStreamPropertyLatency" : 0
+    },
+    "transportName" : "kAudioDeviceTransportTypeBuiltIn",
+    "transportType" : "bltn"
+  },
+  "outputGain" : {
+    "readBackAfterStart" : 0,
+    "readBackAtEnd" : 0,
+    "readBackBeforeStart" : 0,
+    "setTo" : 0
+  },
+  "ownPID" : 12899,
+  "ownProcessObjectAfterEngineStart" : 146,
+  "ownProcessObjectBefore" : 146,
+  "privateAggregate" : true,
+  "privateTap" : true,
+  "rateFix" : {
+    "criteria" : [
+      {
+        "id" : "G0",
+        "measured" : "tap Float32 interleaved, 2 ch, 48000.0 Hz; output nominal 48000.0 Hz",
+        "status" : "pass",
+        "text" : "G0: the tap is Float32 interleaved stereo and its rate equals the output device's nominal rate"
+      },
+      {
+        "id" : "G1",
+        "measured" : "expected 512.00; min \/ median \/ max: left 512.00 \/ 512.00 \/ 512.00; right 512.00 \/ 512.00 \/ 512.00",
+        "status" : "pass",
+        "text" : "G1: every one-second interval's mean frames per call is the device buffer x (tap rate \/ output rate) for both readers (min and max; 0.005 frame tolerance)"
+      },
+      {
+        "id" : "G2",
+        "measured" : "0.0 ppm",
+        "status" : "pass",
+        "text" : "G2: the worst |fill slope| of the two readers, ppm of the tap rate (go <= 100; gray up to 300; no-go above)"
+      },
+      {
+        "id" : "G3a",
+        "measured" : "not a recovery-mode run",
+        "status" : "notEvaluated",
+        "text" : "G3a: no re-prime after the start sequence"
+      },
+      {
+        "id" : "G3b",
+        "measured" : "0 overrun block(s); jump counters only in recovery mode",
+        "status" : "pass",
+        "text" : "G3b: no overrun block, no overrun \/ divergence \/ refused jump"
+      },
+      {
+        "id" : "G3c",
+        "measured" : "left 0, right 0",
+        "status" : "pass",
+        "text" : "G3c: no underrun block after the first sample (either reader)"
+      },
+      {
+        "id" : "G3d",
+        "measured" : "left 0, right 0",
+        "status" : "pass",
+        "text" : "G3d: no phase mismatch (either reader)"
+      },
+      {
+        "id" : "G3e",
+        "measured" : "left 1.0000, right 1.0000",
+        "status" : "pass",
+        "text" : "G3e: the valid-timestamp share is 100 % for both readers (the measured baseline)"
+      }
+    ],
+    "criteriaVersion" : "6b-3b-prereg-1",
+    "epochs" : [
+      {
+        "endSeconds" : 10.000721708333334,
+        "fillFirst" : [
+          2560,
+          2560
+        ],
+        "fillLast" : [
+          2560,
+          2560
+        ],
+        "index" : 0,
+        "sampleCount" : 11,
+        "slopeFramesPerSecond" : [
+          -0.00023798286865043947,
+          -0.00023798286865043947
+        ],
+        "slopePPM" : [
+          -0.004957976430217489,
+          -0.004957976430217489
+        ],
+        "startSeconds" : 0,
+        "underruns" : [
+          0,
+          0
+        ]
+      }
+    ],
+    "informational" : [
+      "Start-up fill (recorded, not gated): fill at the first pull 2560, 2560 frames; engine start to first pull 0.020 s. After a rate fix the fill no longer drains, so this becomes standing latency.",
+      "The output device is at 48000 Hz, the rate every GLOBAL tap had in the earlier real reports: this run cannot tell the device-bound tap from the global one (it is a control, not a test of the hypothesis).",
+      "Output transport: bltn."
+    ],
+    "registration" : "pre-registered GUESS, fixed before the run",
+    "simulated" : false,
+    "stage" : "unclassified",
+    "verdict" : "unclassified",
+    "verdictText" : "this run is not one of the four pre-registered runs (S0 plain 5 s, S1 plain 180 s, S2 recovery 600 s, S3 plain 120 s), so it gets no verdict; the numbers above are informational."
+  },
+  "requestedSeconds" : 10,
+  "ring" : {
+    "freed" : false,
+    "reason" : "kept until the process exits: the headers do not say that stopping the engine or the IO proc, or destroying the aggregate device, waits for a callback that is already running"
+  },
+  "samples" : [
+    {
+      "continuousElapsedSeconds" : 0,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 0,
+      "hostTicks" : 3298494738197,
+      "index" : 0,
+      "outputActualRate" : 48000,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 6,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 3072
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 1,
+          "cursor" : 512,
+          "fill" : 2560,
+          "framesRequested" : 512,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 1,
+          "servedBlocks" : 1,
+          "servedFrames" : 512,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 1,
+          "cursor" : 512,
+          "fill" : 2560,
+          "framesRequested" : 512,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 1,
+          "servedBlocks" : 1,
+          "servedFrames" : 512,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 1.000647583976388,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 1.0006457083333333,
+      "gapSeconds" : 1.0006457083333333,
+      "hostTicks" : 3298518753694,
+      "index" : 1,
+      "outputActualRate" : 48000.48295940478,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 99,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 50688
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 95,
+          "cursor" : 48640,
+          "fill" : 2048,
+          "framesRequested" : 48640,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 95,
+          "servedBlocks" : 95,
+          "servedFrames" : 48640,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 95,
+          "cursor" : 48640,
+          "fill" : 2048,
+          "framesRequested" : 48640,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 95,
+          "servedBlocks" : 95,
+          "servedFrames" : 48640,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 2.00070220901398,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 2.0006997083333333,
+      "gapSeconds" : 1.000054,
+      "hostTicks" : 3298542754990,
+      "index" : 2,
+      "outputActualRate" : 48000.50204123573,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 193,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 98816
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 188,
+          "cursor" : 96256,
+          "fill" : 2560,
+          "framesRequested" : 96256,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 188,
+          "servedBlocks" : 188,
+          "servedFrames" : 96256,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 188,
+          "cursor" : 96256,
+          "fill" : 2560,
+          "framesRequested" : 96256,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 188,
+          "servedBlocks" : 188,
+          "servedFrames" : 96256,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 3.0006857499829493,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 3.0006834583333335,
+      "gapSeconds" : 0.9999837500000002,
+      "hostTicks" : 3298566754600,
+      "index" : 3,
+      "outputActualRate" : 48000.53173381414,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 287,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 146944
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 282,
+          "cursor" : 144384,
+          "fill" : 2560,
+          "framesRequested" : 144384,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 282,
+          "servedBlocks" : 282,
+          "servedFrames" : 144384,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 282,
+          "cursor" : 144384,
+          "fill" : 2560,
+          "framesRequested" : 144384,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 282,
+          "servedBlocks" : 282,
+          "servedFrames" : 144384,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 4.000640542013571,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 4.000638,
+      "gapSeconds" : 0.9999545416666669,
+      "hostTicks" : 3298590753509,
+      "index" : 4,
+      "outputActualRate" : 48000.50737732337,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 381,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 195072
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 376,
+          "cursor" : 192512,
+          "fill" : 2560,
+          "framesRequested" : 192512,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 376,
+          "servedBlocks" : 376,
+          "servedFrames" : 192512,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 376,
+          "cursor" : 192512,
+          "fill" : 2560,
+          "framesRequested" : 192512,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 376,
+          "servedBlocks" : 376,
+          "servedFrames" : 192512,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 5.000563542009331,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 5.00056125,
+      "gapSeconds" : 0.9999232499999993,
+      "hostTicks" : 3298614751667,
+      "index" : 5,
+      "outputActualRate" : 48000.50732942298,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 474,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 242688
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 470,
+          "cursor" : 240640,
+          "fill" : 2048,
+          "framesRequested" : 240640,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 470,
+          "servedBlocks" : 470,
+          "servedFrames" : 240640,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 470,
+          "cursor" : 240640,
+          "fill" : 2048,
+          "framesRequested" : 240640,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 470,
+          "servedBlocks" : 470,
+          "servedFrames" : 240640,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 6.0006828749901615,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 6.000680166666666,
+      "gapSeconds" : 1.0001189166666666,
+      "hostTicks" : 3298638754521,
+      "index" : 6,
+      "outputActualRate" : 48000.50927494671,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 568,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 290816
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 563,
+          "cursor" : 288256,
+          "fill" : 2560,
+          "framesRequested" : 288256,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 563,
+          "servedBlocks" : 563,
+          "servedFrames" : 288256,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 563,
+          "cursor" : 288256,
+          "fill" : 2560,
+          "framesRequested" : 288256,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 563,
+          "servedBlocks" : 563,
+          "servedFrames" : 288256,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 7.000658458971884,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 7.000656083333333,
+      "gapSeconds" : 0.9999759166666671,
+      "hostTicks" : 3298662753943,
+      "index" : 7,
+      "outputActualRate" : 48000.51021443555,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 662,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 338944
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 657,
+          "cursor" : 336384,
+          "fill" : 2560,
+          "framesRequested" : 336384,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 657,
+          "servedBlocks" : 657,
+          "servedFrames" : 336384,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 657,
+          "cursor" : 336384,
+          "fill" : 2560,
+          "framesRequested" : 336384,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 657,
+          "servedBlocks" : 657,
+          "servedFrames" : 336384,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 8.000717499991879,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 8.000715166666666,
+      "gapSeconds" : 1.0000590833333325,
+      "hostTicks" : 3298686755361,
+      "index" : 8,
+      "outputActualRate" : 48000.520463164794,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 756,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 387072
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 751,
+          "cursor" : 384512,
+          "fill" : 2560,
+          "framesRequested" : 384512,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 751,
+          "servedBlocks" : 751,
+          "servedFrames" : 384512,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 751,
+          "cursor" : 384512,
+          "fill" : 2560,
+          "framesRequested" : 384512,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 751,
+          "servedBlocks" : 751,
+          "servedFrames" : 384512,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 9.00066370901186,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 9.000661208333334,
+      "gapSeconds" : 0.9999460416666679,
+      "hostTicks" : 3298710754066,
+      "index" : 9,
+      "outputActualRate" : 48000.51362508976,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 849,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 434688
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 845,
+          "cursor" : 432640,
+          "fill" : 2048,
+          "framesRequested" : 432640,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 845,
+          "servedBlocks" : 845,
+          "servedFrames" : 432640,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 845,
+          "cursor" : 432640,
+          "fill" : 2048,
+          "framesRequested" : 432640,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 845,
+          "servedBlocks" : 845,
+          "servedFrames" : 432640,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    },
+    {
+      "continuousElapsedSeconds" : 10.000724499986973,
+      "defaultOutputChanged" : false,
+      "elapsedSeconds" : 10.000721708333334,
+      "gapSeconds" : 1.0000605,
+      "hostTicks" : 3298734755518,
+      "index" : 10,
+      "outputActualRate" : 48000.51404024934,
+      "outputNominalRate" : 48000,
+      "producer" : {
+        "capacity" : 32768,
+        "commits" : 943,
+        "lastCommitFrames" : 512,
+        "maxCommit" : 16384,
+        "rejectFlags" : 0,
+        "rejectedCommits" : 0,
+        "w" : 482816
+      },
+      "readers" : [
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 938,
+          "cursor" : 480256,
+          "fill" : 2560,
+          "framesRequested" : 480256,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 938,
+          "servedBlocks" : 938,
+          "servedFrames" : 480256,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        {
+          "badBufferBlocks" : 0,
+          "calls" : 938,
+          "cursor" : 480256,
+          "fill" : 2560,
+          "framesRequested" : 480256,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 938,
+          "servedBlocks" : 938,
+          "servedFrames" : 480256,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        }
+      ]
+    }
+  ],
+  "schemaVersion" : 1,
+  "source" : "coreAudioTap",
+  "stoppedBy" : "timeout",
+  "summary" : {
+    "commitsPerHostSecond" : 93.69323808093,
+    "flags" : [
+
+    ],
+    "lockstep" : {
+      "maxCallsDifference" : 0,
+      "maxFramesRequestedDifference" : 0,
+      "phaseMismatches" : [
+        0,
+        0
+      ],
+      "phaseSelfChanges" : [
+        0,
+        0
+      ],
+      "validTimestampShare" : [
+        1,
+        1
+      ],
+      "weakRuleViolations" : [
+        0,
+        0
+      ]
+    },
+    "meanFramesPerCommit" : 512,
+    "outputRate" : {
+      "actualFirst" : 48000,
+      "actualLast" : 48000.51404024934,
+      "actualMax" : 48000.53173381414,
+      "actualMin" : 48000,
+      "changesBetweenSamples" : 0,
+      "defaultOutputChangedAtSamples" : 0,
+      "nominalFirst" : 48000,
+      "nominalLast" : 48000
+    },
+    "producerEndpointResolutionPPM" : 2133.179379999829,
+    "producerFramesPerHostSecond" : 47970.93789743616,
+    "producerVsTapPPM" : -605.4604700800326,
+    "readers" : [
+      {
+        "callsPerHostSecond" : 93.69323808093,
+        "fillEnd" : 2560,
+        "fillMax" : 2560,
+        "fillMin" : 2048,
+        "fillSlopeFramesPerSecond" : -0.00023798286865043947,
+        "fillSlopePPM" : -0.004957976430217489,
+        "fillStart" : 2560,
+        "finalCounters" : {
+          "badBufferBlocks" : 0,
+          "calls" : 938,
+          "cursor" : 480256,
+          "fill" : 2560,
+          "framesRequested" : 480256,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 938,
+          "servedBlocks" : 938,
+          "servedFrames" : 480256,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        "framesPerCallIntervalMeans" : {
+          "max" : 512,
+          "median" : 512,
+          "min" : 512
+        },
+        "framesRequestedPerHostSecond" : 47970.93789743616,
+        "framesRequestedVsTapPPM" : -605.4604700800326,
+        "meanFramesPerCall" : 512,
+        "name" : "left",
+        "perWindowSlopesFramesPerSecond" : [
+
+        ],
+        "perWindowSlopesPPM" : [
+
+        ],
+        "validTimestampShare" : 1
+      },
+      {
+        "callsPerHostSecond" : 93.69323808093,
+        "fillEnd" : 2560,
+        "fillMax" : 2560,
+        "fillMin" : 2048,
+        "fillSlopeFramesPerSecond" : -0.00023798286865043947,
+        "fillSlopePPM" : -0.004957976430217489,
+        "fillStart" : 2560,
+        "finalCounters" : {
+          "badBufferBlocks" : 0,
+          "calls" : 938,
+          "cursor" : 480256,
+          "fill" : 2560,
+          "framesRequested" : 480256,
+          "overrunBlocks" : 0,
+          "oversizeBlocks" : 0,
+          "phaseInvalidCalls" : 0,
+          "phaseMismatches" : 0,
+          "phaseSelfChanges" : 0,
+          "phaseValidCalls" : 938,
+          "servedBlocks" : 938,
+          "servedFrames" : 480256,
+          "silentFrames" : 0,
+          "tornBlocks" : 0,
+          "underrunBlocks" : 0,
+          "weakRuleViolations" : 0
+        },
+        "framesPerCallIntervalMeans" : {
+          "max" : 512,
+          "median" : 512,
+          "min" : 512
+        },
+        "framesRequestedPerHostSecond" : 47970.93789743616,
+        "framesRequestedVsTapPPM" : -605.4604700800326,
+        "meanFramesPerCall" : 512,
+        "name" : "right",
+        "perWindowSlopesFramesPerSecond" : [
+
+        ],
+        "perWindowSlopesPPM" : [
+
+        ],
+        "validTimestampShare" : 1
+      }
+    ],
+    "rejectFlags" : 0,
+    "rejectedCommits" : 0,
+    "sampleCount" : 11,
+    "spanSeconds" : 10.000721708333334,
+    "tapRate" : 48000
+  },
+  "tapFormat" : {
+    "bitsPerChannel" : 32,
+    "bytesPerFrame" : 8,
+    "bytesPerPacket" : 8,
+    "channelsPerFrame" : 2,
+    "formatFlags" : 9,
+    "formatID" : "lpcm",
+    "framesPerPacket" : 1,
+    "sampleRate" : 48000
+  },
+  "tapMode" : "processSpecific",
+  "targetProcessPID" : 10212,
+  "teardownClean" : true,
+  "teardownOrder" : [
+    "sampling timer off",
+    "engine stop",
+    "source nodes detached",
+    "IO stop",
+    "IOProc destroyed",
+    "aggregate destroyed",
+    "tap destroyed",
+    "ring retained"
+  ],
+  "timings" : {
+    "engineStartToFirstPullSeconds" : 0.019995708,
+    "fillAtFirstPull" : [
+      2560,
+      2560
+    ],
+    "firstSampleRunClockSeconds" : 0.121562208,
+    "primeAttempts" : 5,
+    "primeWaitSeconds" : 0.022568999999999992
+  }
+}
