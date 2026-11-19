@@ -18,7 +18,12 @@ import SpatialAudioCore
 @available(macOS 14.2, *)
 public final class SystemRingBackend: RingProbeBackend {
     public let source = "coreAudioTap"
-    public var composition: String { "private aggregate device with the tap only (no sub-device); SARingIOProc as the IOProc; AVAudioEngine (two source nodes -> main mixer, output volume 0) on the default output device" }
+    public var composition: String {
+        let tap = tapMode == .deviceBound ? "a tap BOUND TO THE DEFAULT OUTPUT DEVICE'S STREAM 0 (Step 6b-3b, device-bound)" : "the tap only"
+        return "private aggregate device with \(tap) (no sub-device); SARingIOProc as the IOProc; AVAudioEngine (two source nodes -> main mixer, output volume 0) on the default output device"
+    }
+    /// Step 6b-3b: which tap `createTap` builds (the global stereo mixdown, or the one bound to the default output device's stream).
+    public let tapMode: RingProbeTapMode
     public var hostTicksPerSecond: Double { AudioGetHostClockFrequency() }
     public let ringConstants = RingProbeConstants(capacityFrames: SA_RING_DEFAULT_CAPACITY_FRAMES, primeCallbacks: SA_RING_DEFAULT_PRIME_CALLBACKS)
     public var injectedFaults: String? { nil }
@@ -33,7 +38,7 @@ public final class SystemRingBackend: RingProbeBackend {
     /// Test seam: true once `SARingFree` has been called on the ring. It must stay false for the whole life of this backend.
     private(set) var ringFreed = false
 
-    public init() {}
+    public init(deviceTap: Bool = false) { tapMode = deviceTap ? .deviceBound : .globalMixdown }
 
     public func preflight() -> String? { nil }
 
@@ -62,7 +67,19 @@ public final class SystemRingBackend: RingProbeBackend {
     // MARK: the tap chain (the same calls as SystemTapBackend)
 
     public func createTap(excludingProcessObjects: [UInt32]) -> (tap: UInt32, status: Int32) {
-        let description = CATapDescription(stereoGlobalTapButExcludeProcesses: excludingProcessObjects.map { AudioObjectID($0) })
+        let description: CATapDescription
+        switch tapMode {
+        case .globalMixdown:
+            description = CATapDescription(stereoGlobalTapButExcludeProcesses: excludingProcessObjects.map { AudioObjectID($0) })
+        case .deviceBound:
+            // CATapDescription.h: initExcludingProcesses:andDeviceUID:withStream: "Mix all process audio streams destined for the selected device stream except the given
+            // processes ... The format of the tap will match the format of this stream." Stream 0 is a GUESS (the header says only "the index of the stream"). The device's UID is
+            // read here and used in this call only: it is never stored, logged or reported. Whether the tap really arrives at the output rate is what the spike measures.
+            guard let device = startOutputDevice ?? AudioDeviceFactsReader.defaultOutputDevice().id else { return (0, Int32(bitPattern: FourCC.value("!dev"))) }
+            let uid = CoreAudioProperty.string(of: device, kAudioDevicePropertyDeviceUID)
+            guard uid.status == 0, let deviceUID = uid.value else { return (0, uid.status != 0 ? uid.status : Int32(bitPattern: FourCC.value("!uid"))) }
+            description = CATapDescription(__excludingProcesses: excludingProcessObjects.map { NSNumber(value: $0) }, andDeviceUID: deviceUID, withStream: 0)
+        }
         description.name = "SpatialAudio ring probe"
         description.isPrivate = true
         description.muteBehavior = .unmuted          // the original audio stays audible

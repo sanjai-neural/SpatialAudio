@@ -85,8 +85,12 @@ public final class SimulatedRingBackend: RingProbeBackend, @unchecked Sendable {
 
     private var isVirtual: Bool { if case .virtualTime = pacing { return true } else { return false } }
 
+    /// Step 6b-3b: the simulated device-bound run (a rehearsal of the flow and the report; its tap rate and output rate are FABRICATED, so its verdict decides nothing).
+    public let tapMode: RingProbeTapMode
+
     public init(pacing: Pacing, faults: Faults = Faults(), format: TapFormat = SimulatedRingBackend.realTapLikeFormat,
-                capacityFrames: UInt32 = SA_RING_DEFAULT_CAPACITY_FRAMES, readsUntilGone: Int = 2) {
+                capacityFrames: UInt32 = SA_RING_DEFAULT_CAPACITY_FRAMES, readsUntilGone: Int = 2, deviceTap: Bool = false) {
+        self.tapMode = deviceTap ? .deviceBound : .globalMixdown
         self.pacing = pacing; self.faults = faults; self.format = format; self.capacityFrames = capacityFrames; self.readsUntilGone = readsUntilGone
         ringConstants = RingProbeConstants(capacityFrames: capacityFrames, primeCallbacks: SA_RING_DEFAULT_PRIME_CALLBACKS)
         renderBuffer = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate > 0 ? format.sampleRate : 48_000, channels: 2)

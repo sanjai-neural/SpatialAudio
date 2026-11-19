@@ -31,6 +31,8 @@ public protocol RingProbeBackend: AnyObject {
     var ringConstants: RingProbeConstants { get }
     /// Simulated runs: what was injected (nil for the real backend).
     var injectedFaults: String? { get }
+    /// Step 6b-3b: which tap `createTap` builds. Default (extension below): the global stereo mixdown, as in every run before 6b-3b.
+    var tapMode: RingProbeTapMode { get }
 
     func preflight() -> String?
     /// Numbers only: no name, no UID.
@@ -75,6 +77,7 @@ public protocol RingProbeBackend: AnyObject {
 }
 
 extension RingProbeBackend {
+    public var tapMode: RingProbeTapMode { .globalMixdown }
     /// One `SARingPrime` with the backend's named default T (what the plain modes use).
     public func prime() -> Bool { prime(callbacks: ringConstants.primeCallbacks) }
 }
@@ -141,6 +144,7 @@ public enum RingProbeRunner {
         static let createIOProc = "AudioDeviceCreateIOProcID (SARingIOProc, client data = the ring)"
         static let prepareEngine = "AVAudioEngine: attach 2 source nodes (mono Float32), connect to the main mixer, output volume forced to 0"
         static let prime = "SARingPrime"
+        static let rateGuard = "rate-equality guard (device-bound tap rate against the output device's nominal rate)"
         static let startEngine = "AVAudioEngine startAndReturnError"
         static let gainRefusal = "output gain read-back"
         static let ownPIDAfter = "AudioObjectGetPropertyData(system, kAudioHardwarePropertyTranslatePIDToProcessObject) after the engine started"
@@ -217,6 +221,18 @@ public enum RingProbeRunner {
             guard f.isFloat32, f.isInterleaved, f.channelsPerFrame == 2, f.sampleRate > 0, f.sampleRate.isFinite else {
                 failed("tap format: the ring needs interleaved Float32 stereo (got \(f.sampleFormatDescription), \(f.channelsPerFrame) ch, \(f.sampleRate) Hz)")
                 break build
+            }
+
+            // Step 6b-3b (a2), device-bound mode ONLY: G0's rate half. A tap that does not arrive at the output device's rate is the old setup again (the engine converts and
+            // over-asks); S0 exists to find that out, so the run stops here, cleanly, with the format recorded. The global mode never had this guard and must not get it.
+            if backend.tapMode == .deviceBound {
+                let g = RateEqualityGuard.check(tapRate: f.sampleRate, outputNominalRate: outputFacts.nominalSampleRate)
+                log(Name.rateGuard, g.passes ? 0 : -1, g.passes ? "equal" : g.reason)
+                guard g.passes else {
+                    failed("tap rate: \(g.reason ?? "not equal")")
+                    notes.append("Stopped before the ring was created: the device-bound tap does not arrive at the output device's nominal rate (\(g.reason ?? "")). The tap format above is what it reported.")
+                    break build
+                }
             }
 
             ringCreated = backend.createRing()
@@ -320,7 +336,9 @@ public enum RingProbeRunner {
 
             // 8. Sample once per timer tick; elapsed time is measured per sample from the host ticks.
             ticker.start(periodSeconds: samplePeriodSeconds)
+            let firstSampleClock = clock.now()
             guard takeSample() else { failed("snapshot"); break build }
+            timings.firstSampleRunClockSeconds = firstSampleClock
             var reason = "timeout"
             sampling: while true {
                 let wake = ticker.wait()
@@ -435,6 +453,11 @@ public enum RingProbeRunner {
             if let n = report.recovery?.rePrimesPerformed, n > 0 {
                 report.notes.append("RECOVERY MODE: the engine was stopped and restarted \(n) time(s) by the re-prime controller. The reader counters in sections 2 to 4 are made cumulative across the re-primes (the ring zeroes them at each prime), but the FILL series jumps at every re-prime by design: its slope over the whole run is NOT a drift measurement here. Per-re-prime numbers are in section 8.")
             }
+        }
+        report.tapMode = backend.tapMode
+        if backend.tapMode == .deviceBound {
+            let epochs = RingEpochSlopes.compute(report: report)
+            report.rateFix = RateFixEvaluator.evaluate(RateFixInput(report: report), epochs: epochs)
         }
         return report
     }

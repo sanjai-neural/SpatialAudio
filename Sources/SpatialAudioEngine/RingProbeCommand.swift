@@ -15,9 +15,11 @@ public enum RingProbeCommand {
         public var simulatedFaults: SimulatedRingBackend.Faults
         /// Step 6b-3a-2: non-nil = the recovery mode (the control-thread re-prime with these UNTUNED thresholds). nil = the plain probe, unchanged.
         public var recovery: RePrimeConfig?
+        /// Step 6b-3b: build the tap bound to the default output device's stream (`--ring-probe-device-tap`). false = the global mixdown, as before.
+        public var deviceTap: Bool
 
-        public init(seconds: Double, simulate: Bool = false, simulatedFaults: SimulatedRingBackend.Faults = .init(), recovery: RePrimeConfig? = nil) {
-            self.seconds = seconds; self.simulate = simulate; self.simulatedFaults = simulatedFaults; self.recovery = recovery
+        public init(seconds: Double, simulate: Bool = false, simulatedFaults: SimulatedRingBackend.Faults = .init(), recovery: RePrimeConfig? = nil, deviceTap: Bool = false) {
+            self.seconds = seconds; self.simulate = simulate; self.simulatedFaults = simulatedFaults; self.recovery = recovery; self.deviceTap = deviceTap
         }
     }
 
@@ -29,11 +31,11 @@ public enum RingProbeCommand {
         let ticker = DispatchRingTicker()
         let backend: RingProbeBackend
         if options.simulate {
-            let sim = SimulatedRingBackend(pacing: .realTime, faults: options.simulatedFaults)
+            let sim = SimulatedRingBackend(pacing: .realTime, faults: options.simulatedFaults, deviceTap: options.deviceTap)
             sim.onConfigurationChange = { ticker.interrupt() }
             backend = sim
         } else if #available(macOS 14.2, *) {
-            let real = SystemRingBackend()
+            let real = SystemRingBackend(deviceTap: options.deviceTap)
             real.onConfigurationChange = { ticker.interrupt() }
             backend = real
         } else {

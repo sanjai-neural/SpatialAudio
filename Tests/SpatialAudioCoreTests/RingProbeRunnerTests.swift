@@ -73,7 +73,10 @@ final class FakeRingBackend: RingProbeBackend {
     init(log: EventLog) { self.log = log }
 
     func preflight() -> String? { refusal }
-    func outputDeviceFacts() -> RingOutputFacts { RingOutputFacts(transportType: "fake", nominalSampleRate: 48_000, actualSampleRate: 48_000) }
+    /// Step 6b-3b: the output device's numbers and the tap mode are knobs (the defaults are what every earlier test saw).
+    var outputFacts = RingOutputFacts(transportType: "fake", nominalSampleRate: 48_000, actualSampleRate: 48_000)
+    var tapMode: RingProbeTapMode = .globalMixdown
+    func outputDeviceFacts() -> RingOutputFacts { outputFacts }
     func translateOwnPID() -> (object: UInt32, status: Int32) { (7, 0) }
     func createTap(excludingProcessObjects: [UInt32]) -> (tap: UInt32, status: Int32) { log.add("createTap"); if failCreateTap { return (0, -1) }; tapAlive = true; return (11, 0) }
     func readTapUID(_ tap: UInt32) -> (uid: String?, status: Int32) { ("SENTINEL-UID-9f3a", 0) }
