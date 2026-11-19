@@ -1446,6 +1446,174 @@ The start-up numbers are lower in all five new runs (first-pull fills of 3,072 t
 
 **3c-0 scope as approved (this step):** (A) this record; (B) a header check for a process-specific device-bound tap initializer before any code; (C) the offline calibration; (D) a process-specific tap mode in the probe (a flag naming the target PID, an explicit mute option whose default is unmuted, our process absent from the tap, gain still forced to 0, the 6b-3b guard and verdict apply); (E) the synthetic test file; (F) the mute-experiment criteria, pre-registered before the code (scenarios: normal exit, SIGINT, SIGKILL, the tap destroyed while IO runs, IO stopped while the tap lives; the test player's audio returns within 5 s, GUESS). Sleep and wake are not in this step.
 
+## Step 6b-3c-0 findings and verification record (2026-11-19) — IMPLEMENTED-UNVERIFIED
+
+**Scope (approved by Sanjai 2026-11-19; plan record 82a25a4).** A process-specific tap on the TEST PLAYER only, with an explicit mute option (default unmuted), our own process absent from the tap, output gain still forced to 0 and read back, no gain option; the 6b-3b rate guard and verdict apply to it; a generated synthetic test file; an offline calibration; the mute-experiment criteria pre-registered; the experiments themselves are Sanjai's (docs/MANUAL_TEST_STEP6B3C0.md) and have NOT been run. **Nothing audible from our engine was built or run.** Swift and Core only: `git diff` is empty for every C file, the scan scripts, `rt-block-allowlist.txt`, `SASourceNode.m` and `Package.swift`; no render-thread code, no new block function. Code: commit 887efa9.
+
+**B. Header check, before any code (macOS 27.2 SDK, `CoreAudio.framework/Headers/CATapDescription.h` and `AudioHardwareTapping.h`).** A device-bound tap initializer that taps only chosen processes **exists**:
+- `initWithProcesses:andDeviceUID:withStream:` (line 97): abstract "Mix all given process audio streams destined for the selected device stream"; the parameter is named `processesObjectIDsToIncludeInTap`; **but its parameter text reads "An NSArray of NSNumbers where each NSNumber holds an AudioObjectID of the process object to exclude from the tap. All other processes that output audio will be included in the tap."**, which contradicts the parameter's name and the abstract (the `initExcludingProcesses:andDeviceUID:withStream:` text is the same). The `exclusive` property says "True if this description should tap all processes except the process listed in the 'processes' property."
+- **What the description OBJECT says** [checked 2026-11-19 by constructing description objects only, in a scratch file; no tap created, no device touched, nothing audible]: `initWithProcesses` gives `isExclusive=false`; `initExcludingProcesses` gives `isExclusive=true`; both keep `processes`, `deviceUID` and `stream`; `muteBehavior` defaults to 0 (unmuted); `isPrivate` reads true by default. The Swift spelling `CATapDescription(__processes:andDeviceUID:withStream:)` compiles. **What the object says is not what the system does with it:** whether a tap built this way really lists only the target is observable by the mute experiments (the target goes silent, a second process does not), not by the object.
+- **Mute behaviours** (verbatim): "CATapMuteBehavior describes the playback behavior of the process being tapped. The default value is CATapUnmuted." `CATapUnmuted`: "Audio is captured by the tap and also sent to the audio hardware". `CATapMuted`: "Audio is captured by the tap but no audio is sent from the process to the audio hardware". `CATapMutedWhenTapped`: "Audio is captured by the tap and also sent to the audio hardware until the tap is read by another audio client. For the duration of the read activity on the tap no audio is sent to the audio hardware." For a process-specific tap the "process being tapped" is the listed process.
+- **What happens to that process's audio when the tap is destroyed or our app dies: the headers are SILENT.** `AudioHardwareDestroyProcessTap` says only "This routine destroys the given Tap."; `isPrivate` says "True if this tap is only visible to the client process that created the tap"; no text in `CATapDescription.h` or `AudioHardwareTapping.h` mentions a crash, an exit or a lifetime (the only nearby text is `processRestoreEnabled`, macOS 26: "save tapped processes by bundle ID when they exit, and restore them to the tap when they start up again"). This is exactly what the experiments measure.
+
+**C. Offline calibration (no hardware, no sound; `StereoCalibration`, manual offline rendering).** Two Apple player nodes at -30 and +30 degrees, 2 m (`ListeningTest.sourceDistance`), `.HRTFHQ`, into one `AVAudioEnvironmentNode` (`.headphones`, neutral listener) and the main mixer at **output volume 1**; known inputs (integer-Hz sines at peak 0.1 and 1.0, uniform noise at peak 1.0; left only, right only, both identical); levels read after a 0.5 s warm-up over 2 s. The sources feed the same environment node as the real graph's source nodes will, at the OUTPUT rate (no sample-rate conversion in front of it): an assumption of the measurement, not a result. Numbers at 44,100 Hz (the 48,000 Hz table is in the scratch file; it differs from this one by -0.02 to +0.24 dB in the ear-relative levels, mean +0.015 dB, 54 values):
+
+| input | rate | in RMS dBFS | left ear RMS dBFS | right ear RMS dBFS | left ear rel. dB | right ear rel. dB | out peak | peak gain dB |
+|---|---|---|---|---|---|---|---|---|
+| sine 100 Hz, peak 0.10, left only | 44100 | -23.01 | -31.61 | -32.49 | -8.60 | -9.48 | 0.04 | -8.60 |
+| sine 100 Hz, peak 0.10, right only | 44100 | -23.01 | -32.37 | -31.66 | -9.36 | -8.64 | 0.04 | -8.64 |
+| sine 100 Hz, peak 0.10, both | 44100 | -23.01 | -26.05 | -26.14 | -3.04 | -3.13 | 0.07 | -3.04 |
+| sine 1000 Hz, peak 0.10, left only | 44100 | -23.01 | -30.19 | -34.91 | -7.18 | -11.90 | 0.04 | -7.18 |
+| sine 1000 Hz, peak 0.10, right only | 44100 | -23.01 | -35.38 | -30.25 | -12.37 | -7.24 | 0.04 | -7.24 |
+| sine 1000 Hz, peak 0.10, both | 44100 | -23.01 | -30.31 | -30.88 | -7.30 | -7.87 | 0.04 | -7.30 |
+| sine 4000 Hz, peak 0.10, left only | 44100 | -23.01 | -24.77 | -38.15 | -1.76 | -15.14 | 0.08 | -1.76 |
+| sine 4000 Hz, peak 0.10, right only | 44100 | -23.01 | -34.72 | -25.14 | -11.71 | -2.13 | 0.08 | -2.13 |
+| sine 4000 Hz, peak 0.10, both | 44100 | -23.01 | -22.39 | -23.39 | 0.63 | -0.38 | 0.11 | 0.62 |
+| sine 8000 Hz, peak 0.10, left only | 44100 | -23.01 | -33.59 | -42.20 | -10.58 | -19.19 | 0.03 | -10.58 |
+| sine 8000 Hz, peak 0.10, right only | 44100 | -23.01 | -42.51 | -36.82 | -19.50 | -13.81 | 0.02 | -13.81 |
+| sine 8000 Hz, peak 0.10, both | 44100 | -23.01 | -31.69 | -33.14 | -8.68 | -10.13 | 0.04 | -8.68 |
+| sine 100 Hz, peak 1.00, left only | 44100 | -3.01 | -11.61 | -12.49 | -8.60 | -9.48 | 0.37 | -8.60 |
+| sine 100 Hz, peak 1.00, right only | 44100 | -3.01 | -12.37 | -11.66 | -9.36 | -8.64 | 0.37 | -8.64 |
+| sine 100 Hz, peak 1.00, both | 44100 | -3.01 | -6.05 | -6.14 | -3.04 | -3.13 | 0.71 | -3.04 |
+| sine 1000 Hz, peak 1.00, left only | 44100 | -3.01 | -10.19 | -14.91 | -7.18 | -11.90 | 0.44 | -7.18 |
+| sine 1000 Hz, peak 1.00, right only | 44100 | -3.01 | -15.38 | -10.25 | -12.37 | -7.24 | 0.43 | -7.24 |
+| sine 1000 Hz, peak 1.00, both | 44100 | -3.01 | -10.31 | -10.88 | -7.30 | -7.87 | 0.43 | -7.30 |
+| sine 4000 Hz, peak 1.00, left only | 44100 | -3.01 | -4.77 | -18.15 | -1.76 | -15.14 | 0.82 | -1.76 |
+| sine 4000 Hz, peak 1.00, right only | 44100 | -3.01 | -14.72 | -5.14 | -11.71 | -2.13 | 0.78 | -2.13 |
+| sine 4000 Hz, peak 1.00, both | 44100 | -3.01 | -2.39 | -3.39 | 0.63 | -0.38 | 1.07 | 0.62 |
+| sine 8000 Hz, peak 1.00, left only | 44100 | -3.01 | -13.59 | -22.20 | -10.58 | -19.19 | 0.30 | -10.58 |
+| sine 8000 Hz, peak 1.00, right only | 44100 | -3.01 | -22.51 | -16.82 | -19.50 | -13.81 | 0.20 | -13.81 |
+| sine 8000 Hz, peak 1.00, both | 44100 | -3.01 | -11.69 | -13.14 | -8.68 | -10.13 | 0.37 | -8.68 |
+| noise, peak 1.00, left only | 44100 | -4.77 | -9.32 | -20.09 | -4.55 | -15.32 | 1.23 | 1.79 |
+| noise, peak 1.00, right only | 44100 | -4.77 | -19.51 | -9.89 | -14.74 | -5.12 | 1.17 | 1.37 |
+| noise, peak 1.00, both | 44100 | -4.77 | -8.71 | -9.28 | -3.94 | -4.51 | 1.40 | 2.93 |
+
+- **Levels.** Per source, one active channel: about -7 dB per ear at 1 kHz (left only: left ear -7.18 dB, right ear -11.90 dB relative to the input), -1.8 / -15.1 dB at 4 kHz, -10.6 / -19.2 dB at 8 kHz, -8.6 / -9.5 dB at 100 Hz (almost no difference between the ears at 100 Hz). With both channels identical the ears get about +5 to +6 dB more than from one source at low frequencies (-3.0 dB at 100 Hz) and +0.6 / -0.4 dB at 4 kHz. Left-only input is louder in the left ear and right-only in the right ear at every frequency tested (the direction and the channel mapping are pinned by a test).
+- **The unexplained -3 dB at 44.1 kHz does NOT show up in this graph:** the ear-relative levels at 44,100 Hz and 48,000 Hz agree to -0.02 to +0.24 dB (peak gains differ by -1.2 to +0.3 dB, a sample-peak effect of high-frequency sines and of the noise realization). The earlier offline observation (1/sqrt(2) within 14 ppm) was on a different path (a 48 kHz source converted to a 44.1 kHz mixer); this graph has no such conversion, so it neither explains nor refutes it.
+- **Gain cap PROPOSAL (not applied).** The worst full-scale peak gain is **1.4012 (+2.93 dB) at 44,100 Hz** and 1.3469 (+2.59 dB) at 48,000 Hz, both for full-scale noise in both channels. To keep the rendered peak at or below -16 dB relative to a full-scale input: 10^(-16/20) / 1.4012 = 0.1131, **rounded DOWN to 0.11** (the same at both rates). Consequence: at the plan's cap of 0.15 the worst-case peak is 0.15 x 1.4012 = 0.210 = **-13.5 dBFS, 2.5 dB above the target**; at 0.11 it is 0.154 = -16.2 dBFS. The plan's notches 0.03, 0.06 and 0.10 are within 0.11; 0.15 is not. **Proposed: cap 0.11 for 3c-1 (-19.2 dB), notches 0.03, 0.06, 0.10, 0.11; the plan's 0.15 stays as written until Sanjai decides.** This says nothing about loudness at the headphones (the system volume and the headphones decide that).
+
+**D, E, F: what was built.** `--ring-probe-process-pid=<pid>` (positive, once; never with `--ring-probe-device-tap`), `--ring-probe-tap-mute=<unmuted|muted|mutedwhentapped>` (exact words, default unmuted, only with a pid; a mute is never applied to the all-but-us tap), `--ring-probe-mute-scenario=<destroy-tap|stop-io>@<seconds>` (only with a pid); `ProcessTapPlan` (refuses the target being this process or not an audio process; the include list holds only the target); the runner's rate guard and rate-fix section for every tap mode except the global one; events (`SAMPLING STARTED`, `SCENARIO ...`, `SAMPLING ENDED`, `TEARDOWN COMPLETE`) printed and flushed as they happen; report fields `targetProcessPID`, `muteBehavior`, `muteScenario`, file stem `ringprocesstap-`, a markdown warning when the target was muted. `--make-channel-check-file=<path> [--seconds=900..3600]` (a generated 44,100 Hz 16-bit stereo WAV, a 30 s cycle of left-only, right-only and both bursts, peak -30 dBFS, never overwrites, mode 0600) and `--mute-experiment-verdict <scenario=value,...>`.
+
+**F. The mute-experiment criteria, pre-registered (version `6b-3c0-prereg-1`, "pre-registered GUESS, fixed before the run").** Fixed in the mutation list at 08:19 (before any code) and written as the first code file (`MuteExperiment.swift`): in each of five scenarios (normal exit, SIGINT, SIGKILL, the tap destroyed while IO runs, IO stopped while the tap lives) the test player's audio is audible again within **5 s, inclusive**, of t = 0; precedence no-go > incomplete > inconclusive > go; any no-go means muting is not shipped. Sleep and wake are not in this step. Not changed since.
+
+**Verification, final tree.**
+- `swift build` (debug and release) clean. `swift test`: **950 tests** = 758 Core + 148 Engine + 44 Tracking (was 864 = 690 + 130 + 44; 68 Core and 18 Engine tests are new), all pass; the same 950 pass under `swift test --sanitize=thread` with no report (a regression run: the new logic is pure and single-threaded; the one threaded test is a 1 s simulated run on our own threads).
+- Scans (real exit codes, zsh through the scripts' own shebang): `scan-rt-block.sh` PASS, `scan-rt-callback.sh` PASS, `scan-render-api-coverage.sh` 160 files, 0 violations, `scan-render-api-coverage-cases.sh` all cases as expected; `scan-rt-block-cases.sh`: cases 1 and 1v pass, cases 2 to 7, z and p1 to p4 fail as required (all 13 run); C harness `check-systemaudioring.sh`: 8,949 checks, 0 failures.
+- **Not run:** anything on a real tap, a process-specific tap, a muted tap, Bluetooth or speakers, an `afplay`, the permission prompt of a rebuilt bundle; the file tool was run only on short files in the tests (the 900 s file is Sanjai's step); sleep and wake; anything audible.
+
+**Mutation record (test-the-test).** `scripts/mutate_3c0.py`, filter `MuteExperiment|MuteBehavior|ProcessTap|MuteScenario|ChannelCheck|LevelMath|GainCap|StereoCalibration|RingProbe|RateFix|RateEquality|RingEpoch`.
+- **Provenance.** The original list (103 ids, A to G) was written to a timestamped scratch file at **2026-11-19 08:19:19 +0530, before any 6b-3c-0 code existed** (HEAD 82a25a4, no changed path under Sources, Tests, scripts, Package.swift), sha256 `c3eb508085c434f398941e2ed1c48a4a2ff9d786c17f0b7a2a999cb2d0feb7f3`; not edited afterwards (still that hash). **Every id is original.** The only addition is in a separate file (`ring-3c0-mutations-appended.md`, sha256 `c9309c73f571697a20ea35b723ef876725ec753e3752e64a3cf5432f3b2e2373`), **appended-after-results**: the patch of **A15** did not compile (a `guard let` on a non-optional), was rewritten and A15 was re-run alone (script sha256 `bed59edf8e6108b8c6999fa6e2fa612f15f30397766cb53ba069f27139cd0ba2` for the run, `8669303199fcdcbd8f783e923e4a362af53d1375687aaa4d1e39e7c843632b73` after the rewrite; no other line changed).
+- **The restore step, tested before the run.** The runner keeps a backup of every file it can touch and a journal (written and synced before each patch) in `.build/mutation-3c0/`; SIGINT, SIGTERM and SIGHUP restore and exit; the next start of the script, or `--restore`, restores a tree left mutated by an uncatchable kill. **Shown on two deliberate SIGKILLs** (08:32, mutants A01 and A02): in both the tree was mutated on disk after the kill and was restored, once by `--restore` and once by the next normal run, which said `RECOVERED`; no process was left. Every result line carries the wall-clock time; the results file records the seconds the Mac slept (wall clock minus monotonic clock) per mutant, a HANG overlapping a sleep is reported as `HANG-OVERLAPS-SLEEP` and re-run alone, and the timeout runs on a clock that does not advance during sleep. (`scripts/mutate_ratefix.py` of 6b-3b does not have this step; it was not backported.)
+- **Run:** 2026-11-19 08:35:05 to 08:47:44, on battery with the lid open, under `caffeinate -i`. 103 run, **103 killed** (**C17 by a crash**: the unclipped quantizer traps, no test name is printed), **0 survived, 0 HANG, 0 DID-NOT-COMPILE after the A15 rewrite**; the twelve touched source files are unchanged by the run (hashes before and after equal); no sleep (the per-mutant sleep seconds are all 0 and the power log shows no sleep or wake in the window); no stray process. Test seconds in total: 757 (largest 27.6 s).
+
+| id | change | killed by (first three tests) | verdict | provenance |
+|---|---|---|---|---|
+| A01 | the return window 5 s becomes 50 s | aScenarioThatNeverCameBackIsANoGoAndTheVerdictNamesIt, destroyTapFiresAtTheFirstSampleAtOrAfterItsTimeAndTheTapIsDestroyedExactlyOnce, exactlyFiveSecondsStillCountsAndJustOverFiveDoesNot +1 | KILLED | original |
+| A02 | the boundary: exactly 5.0 s fails | exactlyFiveSecondsStillCountsAndJustOverFiveDoesNot | KILLED | original |
+| A03 | neverReturned counts as a pass | aFailureIsDecisiveWhateverElseIsMissingOrUnmuted, aScenarioThatNeverCameBackIsANoGoAndTheVerdictNamesIt | KILLED | original |
+| A04 | neverMuted counts as a pass | aScenarioThatNeverWentSilentIsInconclusiveNotASuccess | KILLED | original |
+| A05 | a missing scenario is ignored | aMissingDuplicatedOrInvalidScenarioIsIncompleteNotAGo, anEmptyListIsARequestWithNoObservationsAndThatIsIncompleteNotAGo, incompleteComesBeforeInconclusive | KILLED | original |
+| A06 | one failing scenario among passing ones still gives go | aFailureIsDecisiveWhateverElseIsMissingOrUnmuted, aScenarioThatNeverCameBackIsANoGoAndTheVerdictNamesIt, exactlyFiveSecondsStillCountsAndJustOverFiveDoesNot | KILLED | original |
+| A07 | inconclusive takes precedence over noGo | aFailureIsDecisiveWhateverElseIsMissingOrUnmuted | KILLED | original |
+| A08 | incomplete takes precedence over noGo | aFailureIsDecisiveWhateverElseIsMissingOrUnmuted | KILLED | original |
+| A09 | sigkill is not a required scenario | aFailureIsDecisiveWhateverElseIsMissingOrUnmuted, aMissingDuplicatedOrInvalidScenarioIsIncompleteNotAGo, aScenarioThatNeverCameBackIsANoGoAndTheVerdictNamesIt +1 | KILLED | original |
+| A10 | a negative number of seconds is accepted as a return | aMissingDuplicatedOrInvalidScenarioIsIncompleteNotAGo | KILLED | original |
+| A11 | a NaN number of seconds is accepted as a return | aMissingDuplicatedOrInvalidScenarioIsIncompleteNotAGo | KILLED | original |
+| A12 | a duplicated scenario is silently accepted | aMissingDuplicatedOrInvalidScenarioIsIncompleteNotAGo | KILLED | original |
+| A13 | the criteria version is not in the verdict text | allFiveBackWithinTheWindowIsAGo | KILLED | original |
+| A14 | the registration label is not in the verdict text | allFiveBackWithinTheWindowIsAGo | KILLED | original |
+| A15 | the argument parser accepts an unknown scenario name | unknownNamesBadValuesAndMissingEqualsAreRefused | KILLED | original (patch rewritten after results; re-run alone) |
+| A16 | none parses as 0 seconds (a return) | numbersNoneAndUnmutedParseToTheThreeObservationKinds | KILLED | original |
+| A17 | unmuted parses as a return | numbersNoneAndUnmutedParseToTheThreeObservationKinds | KILLED | original |
+| A18 | an empty list is not incomplete (no observations can give go) | aMissingDuplicatedOrInvalidScenarioIsIncompleteNotAGo, anEmptyListIsARequestWithNoObservationsAndThatIsIncompleteNotAGo | KILLED | original |
+| A19 | normal-exit and sigint are swapped in the name mapping | aMissingDuplicatedOrInvalidScenarioIsIncompleteNotAGo, aScenarioThatNeverWentSilentIsInconclusiveNotASuccess, nameMappingIsExact +2 | KILLED | original |
+| A20 | the NO-GO verdict does not say which scenario failed | aScenarioThatNeverCameBackIsANoGoAndTheVerdictNamesIt | KILLED | original |
+| B01 | the target being this process (same PID) is not refused | aTargetThatIsThisProcessIsRefusedBeforeAnyTapExists, thisProcessIsNeverTheTargetByPIDOrByObject | KILLED | original |
+| B02 | the target being this process (same object) is not refused | aTargetThatIsThisProcessIsRefusedBeforeAnyTapExists, thisProcessIsNeverTheTargetByPIDOrByObject | KILLED | original |
+| B03 | an unknown target object (0) is not refused | anUnknownTargetObjectIsRefused, anUnknownTargetProcessIsRefusedAndNothingIsCreated | KILLED | original |
+| B04 | the include list also contains our own object | theIncludeListHoldsOnlyTheTarget, theProcessTapIsCreatedFromTheTranslatedTargetOnlyAndNeverFromOurOwnObject | KILLED | original |
+| B05 | the include list is empty | theIncludeListHoldsOnlyTheTarget, theProcessTapIsCreatedFromTheTranslatedTargetOnlyAndNeverFromOurOwnObject | KILLED | original |
+| B06 | the mute default is muted | aProcessPIDIsParsedAndTheMuteDefaultsToUnmuted, theDefaultIsUnmutedAndTheWordsParseExactly, withoutTheSwitchThereIsNoProcessTap | KILLED | original |
+| B07 | mutedwhentapped parses as muted | theDefaultIsUnmutedAndTheWordsParseExactly, theMuteOptionIsExplicitAndParsedExactly | KILLED | original |
+| B08 | an unknown mute word is accepted as unmuted | theMuteOptionIsExplicitAndParsedExactly, unknownWordsAreRefusedNotTakenAsUnmuted | KILLED | original |
+| B09 | the scenario parser swaps destroy-tap and stop-io | aScenarioIsParsedWithItsTime, scenariosParseWithTheirKindAndTime | KILLED | original |
+| B10 | a scenario time of 0 or negative is accepted | aScenarioIsParsedWithItsTime, badScenariosAreRefused | KILLED | original |
+| B11 | a scenario time that is infinite is accepted | badScenariosAreRefused | KILLED | original |
+| B12 | the scenario kind is not case-exact | badScenariosAreRefused | KILLED | original |
+| C01 | the left-only segment also writes the right channel | samplesAreInterleavedLeftThenRightAndLittleEndian, theSegmentsAreLeftOnlyThenRightOnlyThenBothInThatOrder | KILLED | original |
+| C02 | the right-only segment also writes the left channel | samplesAreInterleavedLeftThenRightAndLittleEndian, theSegmentsAreLeftOnlyThenRightOnlyThenBothInThatOrder | KILLED | original |
+| C03 | the both segment writes only the left channel | theSegmentsAreLeftOnlyThenRightOnlyThenBothInThatOrder | KILLED | original |
+| C04 | the peak amplitude is 0.316 (-10 dBFS) | thePeakIsMinus30DBFSAndNeverAbove, theSummaryReportsTheRealPeakAndRMSNotAConstant | KILLED | original |
+| C05 | no fade: the first sample of a burst is not zero | everyBurstFadesInAndOutSoItHasNoClick | KILLED | original |
+| C06 | the burst length is 0.25 s | aBurstIsHalfASecondAndTheGapIsExactSilence | KILLED | original |
+| C07 | the segment order is swapped (right first) | aBurstIsHalfASecondAndTheGapIsExactSilence, samplesAreInterleavedLeftThenRightAndLittleEndian, theSegmentsAreLeftOnlyThenRightOnlyThenBothInThatOrder | KILLED | original |
+| C08 | the noise depends on the clock (not deterministic) | aShortFileIsHeaderPlusTheOneShotEncodingByteForByteAcrossChunkBoundaries, pcm16HasFourBytesPerFrameAndStartsWhereAsked, samplesAreInterleavedLeftThenRightAndLittleEndian +1 | KILLED | original |
+| C09 | the segment length is 5 s instead of 10 s | theSegmentStructureRepeatsEvery30SecondsWhileTheNoiseSamplesDoNot, theSummaryReportsTheRealPeakAndRMSNotAConstant | KILLED | original |
+| C10 | the WAV data size field is wrong | theDataSizeFollowsTheFrameCount, theHeaderIsAStandardPCM16StereoRIFFOf44Bytes | KILLED | original |
+| C11 | the WAV RIFF size field is wrong | theDataSizeFollowsTheFrameCount, theHeaderIsAStandardPCM16StereoRIFFOf44Bytes | KILLED | original |
+| C12 | the WAV channel count is 1 | theHeaderIsAStandardPCM16StereoRIFFOf44Bytes | KILLED | original |
+| C13 | the WAV bits per sample is 8 | theHeaderIsAStandardPCM16StereoRIFFOf44Bytes | KILLED | original |
+| C14 | the WAV byte rate is wrong | theHeaderIsAStandardPCM16StereoRIFFOf44Bytes | KILLED | original |
+| C15 | the WAV block align is wrong | theHeaderIsAStandardPCM16StereoRIFFOf44Bytes | KILLED | original |
+| C16 | the quantizer truncates toward zero instead of rounding | quantizingRoundsToNearestAndClips | KILLED | original |
+| C17 | the quantizer does not clip at +/-1 | (crash: the test process trapped) | KILLED | original |
+| C18 | the tool accepts 899 s (the minimum is 900) | theToolLimitsAre900To3600Seconds, theToolRefusesDurationsOutsideTheLimitsBeforeWritingAnything | KILLED | original |
+| C19 | the tool accepts more than 3600 s | theToolLimitsAre900To3600Seconds, theToolRefusesDurationsOutsideTheLimitsBeforeWritingAnything | KILLED | original |
+| C20 | the chunked writer drops the last partial chunk | aShortFileIsHeaderPlusTheOneShotEncodingByteForByteAcrossChunkBoundaries, anExistingFileIsNeverOverwrittenUnlessAskedTo | KILLED | original |
+| C21 | chunk boundaries repeat a frame (the chunk starts one frame early) | aShortFileIsHeaderPlusTheOneShotEncodingByteForByteAcrossChunkBoundaries | KILLED | original |
+| C22 | samples are written big-endian | samplesAreInterleavedLeftThenRightAndLittleEndian | KILLED | original |
+| C23 | the gap between bursts is not silence | aBurstIsHalfASecondAndTheGapIsExactSilence, theSegmentsAreLeftOnlyThenRightOnlyThenBothInThatOrder | KILLED | original |
+| D01 | --ring-probe-process-pid is ignored | aProcessPIDIsParsedAndTheMuteDefaultsToUnmuted | KILLED | original |
+| D02 | a pid of 0 or negative is accepted | badPIDsAreRefusedNotIgnored | KILLED | original |
+| D03 | the process pid together with --ring-probe-device-tap is accepted | theTwoTapsAreMutuallyExclusive | KILLED | original |
+| D04 | --ring-probe-tap-mute without a pid is accepted | aMuteOptionOrAScenarioWithoutAProcessPIDIsRefused | KILLED | original |
+| D05 | --ring-probe-mute-scenario without a pid is accepted | aMuteOptionOrAScenarioWithoutAProcessPIDIsRefused | KILLED | original |
+| D06 | a repeated process pid is silently accepted | aRepeatedProcessPIDIsRefused | KILLED | original |
+| D07 | the tap-mute value is ignored by the parser | theMuteOptionIsExplicitAndParsedExactly | KILLED | original |
+| D08 | a gain or volume option is not refused when a process pid is given | thereIsStillNoGainOptionAndNamingOneIsRefusedWithTheProcessSwitches | KILLED | original |
+| D09 | the file stem ignores the process mode | theProcessTapFileStemHasItsOwnPrefixAndKeepsTheSimulatedSuffix | KILLED | original |
+| D10 | the markdown does not warn that the target's audio was muted | theReportRecordsTheTargetPIDAndTheMuteBehaviourAndDefaultsToUnmuted | KILLED | original |
+| D11 | the report's mute behaviour stays unmuted whatever was requested | theCommandBuildsTheProcessTapBackendOnlyWhenAskedAndTheReportSaysWhich, theReportRecordsTheTargetPIDAndTheMuteBehaviourAndDefaultsToUnmuted | KILLED | original |
+| D12 | the target PID is not recorded in the report | theCommandBuildsTheProcessTapBackendOnlyWhenAskedAndTheReportSaysWhich, theReportRecordsTheTargetPIDAndTheMuteBehaviourAndDefaultsToUnmuted | KILLED | original |
+| E01 | the rate-equality guard is skipped in process-specific mode | theRateEqualityGuardAndTheVerdictApplyToTheProcessTapToo | KILLED | original |
+| E02 | the rate-fix section is not attached in process-specific mode | theCommandBuildsTheProcessTapBackendOnlyWhenAskedAndTheReportSaysWhich, theRateEqualityGuardAndTheVerdictApplyToTheProcessTapToo | KILLED | original |
+| E03 | the guard is applied in global mode too | theGlobalModeNeverHadTheGuardAndStillRunsWith48kHzOnA44kHzOutput, theRateFixSectionRoundTripsThroughJSONAndPrintsInTheMarkdown | KILLED | original |
+| E04 | a target process that is this process (same PID) is not refused by the runner | aTargetThatIsThisProcessIsRefusedBeforeAnyTapExists | KILLED | original |
+| E05 | an unknown target object is not refused by the runner (the tap is created) | anUnknownTargetProcessIsRefusedAndNothingIsCreated | KILLED | original |
+| E06 | the target is not translated before the tap is created (a fixed object is used) | aTargetThatIsThisProcessIsRefusedBeforeAnyTapExists, anUnknownTargetProcessIsRefusedAndNothingIsCreated, theProcessTapIsCreatedFromTheTranslatedTargetOnlyAndNeverFromOurOwnObject | KILLED | original |
+| E07 | the process tap is created with the global creation call | theProcessTapIsCreatedFromTheTranslatedTargetOnlyAndNeverFromOurOwnObject | KILLED | original |
+| E08 | the mute scenario fires one sample late | aTimeBetweenSamplesFiresAtTheNextSample, destroyTapFiresAtTheFirstSampleAtOrAfterItsTimeAndTheTapIsDestroyedExactlyOnce, stopIOStopsTheIOOnceKeepsTheTapAndTheRunGoesOnToItsEnd | KILLED | original |
+| E09 | the mute scenario fires twice (at every later sample) | aScenarioFiresOnceNotAtEverySampleAfterItsTime, aTimeBetweenSamplesFiresAtTheNextSample, destroyTapFiresAtTheFirstSampleAtOrAfterItsTimeAndTheTapIsDestroyedExactlyOnce +1 | KILLED | original |
+| E10 | the destroy-tap scenario stops the IO instead | destroyTapFiresAtTheFirstSampleAtOrAfterItsTimeAndTheTapIsDestroyedExactlyOnce | KILLED | original |
+| E11 | the stop-io scenario destroys the tap instead | aScenarioFiresOnceNotAtEverySampleAfterItsTime, stopIOStopsTheIOOnceKeepsTheTapAndTheRunGoesOnToItsEnd | KILLED | original |
+| E12 | the teardown destroys the tap a second time after the scenario destroyed it | destroyTapFiresAtTheFirstSampleAtOrAfterItsTimeAndTheTapIsDestroyedExactlyOnce | KILLED | original |
+| E13 | the teardown stops the IO a second time after the scenario stopped it | aScenarioFiresOnceNotAtEverySampleAfterItsTime, stopIOStopsTheIOOnceKeepsTheTapAndTheRunGoesOnToItsEnd | KILLED | original |
+| E14 | the scenario record is not put into the report | aScenarioThatNeverComesBeforeTheEndIsRecordedAsNeverFired, destroyTapFiresAtTheFirstSampleAtOrAfterItsTimeAndTheTapIsDestroyedExactlyOnce, stopIOStopsTheIOOnceKeepsTheTapAndTheRunGoesOnToItsEnd | KILLED | original |
+| E15 | events are not sent through onEvent | aScenarioFiresOnceNotAtEverySampleAfterItsTime, anAnnouncementIsMadeWhenSamplingStartsAndEndsAndAfterTheTeardown, destroyTapFiresAtTheFirstSampleAtOrAfterItsTimeAndTheTapIsDestroyedExactlyOnce +1 | KILLED | original |
+| E16 | a mute scenario outside the process mode is not refused | aScenarioOutsideTheProcessModeIsRefusedBeforeAnythingExists | KILLED | original |
+| E17 | the gain guard is skipped in process-specific mode | theOutputGainIsStillReadBackAndAnythingButZeroRefusesTheEngineStart | KILLED | original |
+| E18 | the first-sample clock is not recorded in process-specific mode | theFirstSampleClockIsRecordedInTheProcessMode | KILLED | original |
+| F01 | SystemRingBackend ignores its process-tap spec for the tap mode | theRealBackendRemembersTheProcessTapSpecAndSaysSoInItsComposition | KILLED | original |
+| F02 | SimulatedRingBackend ignores its process-tap spec for the tap mode | theCommandBuildsTheProcessTapBackendOnlyWhenAskedAndTheReportSaysWhich, theSimulatedBackendRemembersTheSpecAndTranslatesAFabricatedTarget | KILLED | original |
+| F03 | the composition does not say the tap is process-specific | theRealBackendRemembersTheProcessTapSpecAndSaysSoInItsComposition | KILLED | original |
+| F04 | the mute mapping maps muted to unmuted | theMuteOptionMapsToCoreAudiosThreeBehaviours | KILLED | original |
+| F05 | the mute mapping maps mutedWhenTapped to muted | theMuteOptionMapsToCoreAudiosThreeBehaviours | KILLED | original |
+| F06 | RingProbeCommand ignores the process-tap options (simulated and real path) | theCommandBuildsTheProcessTapBackendOnlyWhenAskedAndTheReportSaysWhich | KILLED | original |
+| F07 | the calibration puts the left source at +30 degrees (azimuth sign swapped) | aLeftOnlyInputIsLouderInTheLeftEarAndARightOnlyInputInTheRightEar | KILLED | original |
+| F08 | the calibration swaps the two sources' buffers | aLeftOnlyInputIsLouderInTheLeftEarAndARightOnlyInputInTheRightEar | KILLED | original |
+| F09 | the calibration's default distance is 1 m instead of 2 m | aNearerSourceIsLouderAndTheDefaultDistanceIsTheListeningTestsTwoMetres | KILLED | original |
+| F10 | the calibration measures from the first block (no warm-up skip) | theWarmupIsHalfASecondAndTheRowSaysHowManyFramesWereSkipped | KILLED | original |
+| F11 | the dB conversion uses 10 log10 for amplitudes | aFullScaleRowIsFlaggedAndOnlyFullScaleRowsDecideTheWorstPeakGain, aLeftOnlyInputIsLouderInTheLeftEarAndARightOnlyInputInTheRightEar, amplitudeRatiosAreTwentyLogTen +1 | KILLED | original |
+| F12 | the peak is computed as an RMS | rmsAndPeakAreWhatTheirNamesSay | KILLED | original |
+| F13 | the cap proposal rounds UP instead of down | theCapKeepsTheWorstPeakAtOrBelowTheTargetAndIsRoundedDown, theTargetIsAParameterNotAConstantBakedIn | KILLED | original |
+| F14 | the cap proposal uses -6 dB instead of -16 dB | theCapKeepsTheWorstPeakAtOrBelowTheTargetAndIsRoundedDown, theTargetIsMinus16DB | KILLED | original |
+| F15 | the cap proposal uses the best case instead of the worst full-scale peak gain | aFullScaleRowIsFlaggedAndOnlyFullScaleRowsDecideTheWorstPeakGain | KILLED | original |
+| F16 | the cap proposal accepts a zero or negative peak gain | aPeakGainThatIsNotAPositiveFiniteNumberGivesNoProposal | KILLED | original |
+| G01 | the tool overwrites an existing file | anExistingFileIsNeverOverwrittenUnlessAskedTo | KILLED | original |
+| G02 | the tool prints a peak of 0 dBFS whatever was written | theSummaryReportsTheRealPeakAndRMSNotAConstant | KILLED | original |
+
+**Noticed outside this step (reported, not fixed).** (1) The `initWithProcesses` header text contradicts its own parameter name and abstract (above). (2) A new `CATapDescription` object reads `isPrivate == true` before we set anything. (3) `scripts/mutate_ratefix.py` has no restore-from-backup step (the 6b-3b run left a mutant in the tree for hours); only `mutate_3c0.py` has it. (4) The offline -3 dB of Step 6b-2b is still unexplained: this calibration's graph has no sample-rate conversion and shows no such offset. (5) The plan's cap of 0.15 is 2.5 dB above its own -16 dB target for full-scale noise in both channels (the calibration's finding; the decision is Sanjai's).
+
 ## Pre-release checklist (PLANNED; before the repository is made public or a release is built, Step 9)
 - [ ] **Scrub the account path.** `docs/MANUAL_TEST_STEP2.md`, `MANUAL_TEST_STEP3A.md`, `MANUAL_TEST_STEP6A.md` and `MANUAL_TEST_STEP6B2.md` contain `/Users/sanjais/ClaudeHome/SpatialAudio/...` (`git grep -l '/Users/sanjais'` lists exactly these four tracked files on 2026-11-08). Replace with a relative path or `<repo>`. **They are already on `origin/main`, so editing the working tree does not remove them from the history**; if the repository goes public, decide then whether the history needs rewriting. The dev bundle also embeds the repo path in its Info.plist (`SADevRepoRoot`, debug builds only; `build/` is not tracked; release builds do not embed it).
 - [ ] Before committing any real report: the privacy grep (file array, with positive controls) for account, host and device names and for `/Users` paths, as done for the five ring-probe reports.
