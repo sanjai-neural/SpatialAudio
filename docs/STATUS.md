@@ -1372,6 +1372,55 @@ Real hardware, count-only, output gain 0 (read back 0.000 before start, after st
 
 **Noticed outside this step (reported, not fixed).** (1) The mutation runner's lack of a restore-from-backup step (above). (2) `docs/STATUS.md` line for the 3a-2 verification still says the two real runs "are not done"; the 2026-11-18 real-runs section supersedes it, as that section says. (3) The 3a-2 manual's first correction contained a wrong sentence (62 f/s "not what these runs show"); corrected in f55df39.
 
+## Step 6b-3b (a2) real runs (2026-11-19)
+
+Real hardware, count-only, output gain 0 (read back 0.000 before the start, after the start and at the end in all five reports). The reports are in `docs/test-results/` (committed as 21968fd); numbers below were read from the files on disk. **Build:** the reports carry no commit hash. The instruction for this record named 154662c; the file timestamps agree (the bundle binary `build/SpatialAudio.app/Contents/MacOS/SpatialAudio` has mtime 2026-11-19 07:17:57 +0530, after 154662c at 07:14:41 and before the first run at 07:18:24, and `git diff 154662c HEAD -- Sources Package.swift scripts` is empty); that is an inference, not proof of which source tree the binary was built from. One Mac (`Mac16,12`, macOS 27.2 build 26B123). The file stem is the run's END time; "start" below is the report's Created time (IST). The pre-registered criteria (version `6b-3b-prereg-1`) were **not changed** after the runs.
+
+| file (`ringdevicetap-20261119-...`) | start | run | output | tap format and rate | stage, verdict |
+|---|---|---|---|---|---|
+| `071831` | 07:18:24 | 5 s | **built-in speakers** (transport `bltn`), 48,000 Hz | Float32 interleaved stereo, 48,000 Hz | S0, `proceedToS1` |
+| `071940` | 07:19:34 | 5 s | Bluetooth (`blue`), 44,100 Hz | Float32 interleaved stereo, **44,100 Hz** | S0, `proceedToS1` |
+| `072259` | 07:19:58 | 180 s | Bluetooth, 44,100 Hz | 44,100 Hz | S1, `continueToS2` |
+| `073339` | 07:23:39 | 600 s (recovery mode) | Bluetooth, 44,100 Hz | 44,100 Hz | S2, **`go`** |
+| `075158` | 07:49:58 | 120 s | built-in speakers, 48,000 Hz | 48,000 Hz | S3, `controlOK` |
+
+**The first S0 report (`071831`) is the BUILT-IN SPEAKERS** (transport `bltn`, 48,000 Hz), a control, although its `/tmp` file name said `bt` (the report itself carries no such name; the transport type is in it). At a 48 kHz output the report says it "cannot tell the device-bound tap from the global one"; it is not a test of the hypothesis. All five: outcome `ok`, stopped by timeout, no flags, 0 configuration changes, teardown clean; tap lists 0 / 1 / 0 (before / during / after); device lists 6 / 8 / 7 in the Bluetooth runs and 4 / 6 / 5 in the speaker runs, i.e. one device more after the teardown than before, read right after it (the aggregate's destruction is asynchronous per AudioHardware.h; the same pattern as the 2026-11-18 runs), not examined further; no separate post-run `--list-audio-devices` was reported for these runs.
+
+**S0 on Bluetooth (`071940`): the measurement the spike was for.** The device-bound tap reported Float32 interleaved stereo at **44,100 Hz**, equal to the output device's nominal 44,100 Hz (G0 pass, the rate-equality guard passed). Every earlier GLOBAL tap, 27 reports on both outputs, was 48,000 Hz [MEASURED, 2026-11-07 to 2026-11-18]. In this setup the device-bound tap arrives at the output device's rate. The 5 s run's own fill slope (+1,658 ppm: one 512-frame step, 3,072 to 3,584) is not resolvable (the report prints the endpoint resolution as about +/- 4,644 ppm) and S0 judges only G0.
+
+**The 600 s Bluetooth run (`073339`, S2, recovery mode) in numbers:**
+- Tap Float32 interleaved stereo **44,100 Hz**; output Bluetooth 44,100 Hz nominal, 44,100.000 Hz actual (44,100.021 Hz at every sample), buffer 512 frames; source nodes mono Float32 at 44,100 Hz, main mixer and output node at 44,100 Hz.
+- **Every call asked for exactly 512 frames**: both readers 51,681 calls, frame-count table `512 x 51681`, 0 overflow calls, min = max = 512, per-interval means 512.00 / 512.00 / 512.00 (min / median / max) in every one of the 600 intervals.
+- **Fill slope -0.004 frames/s = -0.1 ppm of the tap rate** (both readers); per-minute slopes -15.5, -13.5, -7.7, -7.7, -0.0, 0.0, 3.9, 7.7, 9.7, 15.5 ppm (spread 31.0 ppm). The fill took only two values, 3,584 (361 of the 601 samples) and 4,096 (240), a difference of one 512-frame step, which is the snapshot resolution the report states (about one call).
+- **Underruns 0 / 0, overrun blocks 0, jumps 0 (overrun, divergence, refused), re-primes 0** (suppressed 0 / 0, no GAVE UP), torn, oversize and bad-buffer blocks 0, silent frames 0; no `diverged` or `needsReprime` flag.
+- **Valid timestamps 1.0000** for both readers (51,681 of 51,681 calls), phase mismatches 0 / 0, phase self-changes 0 / 0, weak-rule violations 0 / 0, **lockstep 0** (max |calls L - R| 0, max |frames requested L - R| 0).
+- Producer 44,100.23 frames per host second (+5.2 ppm against the declared rate; endpoint resolution about +/- 38.7 ppm), 86.13 commits per second of 512 frames, 0 rejected commits. Output rate: 0 changes, 0 default-device changes.
+- **Per-epoch row:** one epoch (no re-prime), 601 samples, 0.0 to 600.0 s, slope -0.00 frames/s = -0.1 ppm for both readers, fill 3,584 first and last, 0 underruns.
+- **Standing fill: 3,584 to 4,096 frames. ARITHMETIC: about 81 to 93 ms at 44.1 kHz (3,584 / 44,100 = 81.3 ms; 4,096 / 44,100 = 92.9 ms). This is a ring fill, NOT an end-to-end latency** (it leaves out the engine's and the Bluetooth device's own delays and the tap's, none of which is measured). The fill at the first pull was 3,584 (engine start to first pull 0.041 s); the start sequence's engine start completed at 0.150 s on the run clock after 7 prime attempts.
+- Criteria G0 to G3e all `pass`; verdict `go` under the pre-registered criteria. `S1` (`072259`, 180 s): G0, G1, G2 (-5.94 ppm) and G3c pass, 15,505 calls per reader, all 512 frames, fill 3,584 to 3,072, 0 underruns; `S3` (`075158`, 120 s, speakers): G0, G1, G3b to G3e pass, 11,251 calls per reader, all 512, 0 underruns, valid 1.0000, lockstep 0; the slope (+27.7 ppm over 120 s) is not judged in S3 (one 512-frame step is about +/- 89 ppm over 120 s at 48 kHz [ARITHMETIC]).
+
+**Before and after, Bluetooth output at 44,100 Hz, 600 s, recovery mode, the same probe** (global tap: `ringrecovery-20261118-234455`, 2026-11-18; device-bound tap: `ringdevicetap-20261119-073339`). The reports do not record the device, so whether it is the same Bluetooth device is not shown.
+
+| | global tap (2026-11-18) | device-bound tap (2026-11-19) |
+|---|---|---|
+| tap rate | 48,000 Hz | **44,100 Hz** |
+| frames per call, both readers | **558** every call (51,622 calls) | **512** every call (51,681 calls) |
+| fill slope | -54.7 to -64.1 frames/s inside the full epochs (about +1,040 to +1,430 ppm of requests against the producer; per-epoch reading above) | **-0.004 frames/s = -0.1 ppm** over the whole run |
+| underrun blocks | 62 left / 61 right | **0 / 0** |
+| re-primes | 6 (gaps 68.9 to 208.0 s) | **0** |
+| jumps (overrun, divergence, refused) | 0 | 0 |
+| valid timestamps | 1.0000 | 1.0000 |
+| phase mismatches / lockstep | 0 / 0 | 0 / 0 |
+| fill at the first pull | 13,266 frames | 3,584 frames |
+| engine start completed (start sequence, run clock) | 0.337 s | 0.150 s |
+| producer against the host clock | -0.4 ppm | +5.2 ppm |
+
+The start-up numbers are lower in all five new runs (first-pull fills of 3,072 to 3,584 frames; the 600 s Bluetooth global-tap run of 2026-11-18 had 13,266, and the interrupted one a 24,530-frame start-up jump): one engine start per run, so this says nothing about why.
+
+**Tags.** The rate fix is **observed working in one 600 s run on one Bluetooth device, count-only, gain 0** (S1 agrees for 180 s on the same output; S0 and S3 are the controls). **UNVERIFIED, not measured by these runs:** the tap's CONTENT (the probe counts frames; it does not compare samples with the original audio), sound, end-to-end latency, CPU, sleep and wake, other Bluetooth devices, a device or rate change while running (the device-bound tap must be recreated then: docs/ARCHITECTURE.md), the HRTF / environment-node graph, and whether a device-bound tap changes what a listener hears. **Own-process exclusion (Q05) stays "not verified":** every report's line "Own audio process object before the tap / after the engine started: N / N; excluded: N" shows the object that the code passed to the tap description; whether Core Audio honoured the exclusion is not shown (our process is silent at gain 0, so a feedback loop could not appear either way).
+
+**What Sanjai reported for these runs: nothing.** No notes were provided: **no audible observation, no permission-prompt text, no list of settings touched was reported.** None is guessed here; no claim is made about whether the original audio was disturbed, or whether a prompt appeared. A later docs commit will add notes if he sends them.
+
 ## Pre-release checklist (PLANNED; before the repository is made public or a release is built, Step 9)
 - [ ] **Scrub the account path.** `docs/MANUAL_TEST_STEP2.md`, `MANUAL_TEST_STEP3A.md`, `MANUAL_TEST_STEP6A.md` and `MANUAL_TEST_STEP6B2.md` contain `/Users/sanjais/ClaudeHome/SpatialAudio/...` (`git grep -l '/Users/sanjais'` lists exactly these four tracked files on 2026-11-08). Replace with a relative path or `<repo>`. **They are already on `origin/main`, so editing the working tree does not remove them from the history**; if the repository goes public, decide then whether the history needs rewriting. The dev bundle also embeds the repo path in its Info.plist (`SADevRepoRoot`, debug builds only; `build/` is not tracked; release builds do not embed it).
 - [ ] Before committing any real report: the privacy grep (file array, with positive controls) for account, host and device names and for `/Users` paths, as done for the five ring-probe reports.
